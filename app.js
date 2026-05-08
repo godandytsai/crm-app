@@ -71,7 +71,17 @@ window.handleLogout = async () => {
 
 async function afterLogin(user) {
   currentUser = user
-  const { data: rep } = await sb.from('sales_rep').select('*').eq('auth_user_id', user.id).single()
+  const { data: rep, error } = await sb.from('sales_rep').select('*').eq('auth_user_id', user.id).single()
+  
+  if (error || !rep) {
+    const errEl = document.getElementById('login-error')
+    errEl.textContent = '找不到對應帳號，請聯繫管理者'
+    errEl.style.display = 'block'
+    document.getElementById('btn-login').disabled = false
+    document.getElementById('btn-login').textContent = '登入'
+    await sb.auth.signOut()
+    return
+  }
   currentRep = rep
 
   document.getElementById('screen-login').classList.remove('active')
