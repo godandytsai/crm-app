@@ -134,3 +134,14 @@ a { color: var(--blue); }
 /* ── Empty State ── */
 .empty-state { text-align: center; padding: 40px 20px; color: var(--text-hint); font-size: 14px; }
 .empty-state i { font-size: 36px; display: block; margin-bottom: 10px; }
+
+/* ── 客戶搜尋下拉 ── */
+.search-wrap{position:relative}
+.dropdown{position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--bg);border:0.5px solid var(--border-sec);border-radius:var(--radius);max-height:200px;overflow-y:auto;z-index:300;box-shadow:0 4px 12px rgba(0,0,0,0.08)}
+.dropdown-item{padding:10px 14px;font-size:14px;cursor:pointer;display:flex;align-items:center;gap:10px;border-bottom:0.5px solid var(--border)}
+.dropdown-item:last-child{border-bottom:none}
+.dropdown-item:hover{background:var(--blue-light)}
+.di-name{font-weight:500;color:var(--text)}
+.di-type{font-size:11px;color:var(--text-sec)}
+.selected-tag{background:var(--blue-light);border-radius:var(--radius);padding:8px 12px;font-size:13px;color:var(--blue-dark);display:flex;align-items:center;justify-content:space-between;margin-top:6px}
+.selected-tag button{background:none;border:none;color:var(--blue);font-size:18px;padding:0;line-height:1;cursor:pointer}
