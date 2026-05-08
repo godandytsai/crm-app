@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="拜訪通">
+<title>拜訪通 CRM</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- 登入畫面 -->
+    <div id="screen-login" class="screen active">
+      <div class="login-wrap">
+        <div class="login-logo">
+          <i class="ti ti-map-pin-check"></i>
+        </div>
+        <h1>拜訪通</h1>
+        <p class="login-sub">業務拜訪管理系統</p>
+        <div class="form-group">
+          <label>Email</label>
+          <input type="email" id="login-email" placeholder="your@email.com" autocomplete="email">
+        </div>
+        <div class="form-group">
+          <label>密碼</label>
+          <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password">
+        </div>
+        <button class="btn-primary" id="btn-login" onclick="handleLogin()">登入</button>
+        <div id="login-error" class="error-msg" style="display:none"></div>
+      </div>
+    </div>
+
+    <!-- 主畫面（登入後） -->
+    <div id="screen-main" class="screen">
+      <!-- 頂部導航 -->
+      <div class="top-bar">
+        <div class="top-bar-left">
+          <span id="top-role-badge" class="role-badge"></span>
+          <span id="top-title">今日拜訪</span>
+        </div>
+        <button class="btn-icon" onclick="handleLogout()" aria-label="登出">
+          <i class="ti ti-logout"></i>
+        </button>
+      </div>
+
+      <!-- 頁面內容區 -->
+      <div id="page-content" class="page-content"></div>
+
+      <!-- 底部導航（業務用） -->
+      <nav id="bottom-nav" class="bottom-nav">
+        <button class="nav-item active" onclick="switchPage('today')" id="nav-today">
+          <i class="ti ti-map-route"></i>
+          <span>今日</span>
+        </button>
+        <button class="nav-item" onclick="switchPage('customers')" id="nav-customers">
+          <i class="ti ti-building-store"></i>
+          <span>客戶</span>
+        </button>
+        <button class="nav-item" onclick="switchPage('pending')" id="nav-pending">
+          <i class="ti ti-bell"></i>
+          <span>待辦</span>
+        </button>
+        <button class="nav-item" onclick="switchPage('stats')" id="nav-stats">
+          <i class="ti ti-chart-bar"></i>
+          <span>數字</span>
+        </button>
+      </nav>
+    </div>
+  </div>
+
+  <!-- 新增拜訪 Modal -->
+  <div id="modal-visit" class="modal-overlay" onclick="closeVisitModal(event)">
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <h3>新增拜訪記錄</h3>
+      <div class="form-group">
+        <label>客戶</label>
+        <select id="visit-customer"></select>
+      </div>
+      <div class="form-group">
+        <label>拜訪結果</label>
+        <div class="pill-group" id="visit-result-pills">
+          <button class="pill selected" data-val="成交">成交</button>
+          <button class="pill" data-val="未成交">未成交</button>
+          <button class="pill" data-val="待跟進">待跟進</button>
+          <button class="pill" data-val="回絕">回絕</button>
+          <button class="pill" data-val="不在">不在</button>
+        </div>
+      </div>
+      <div class="form-group" id="amount-group">
+        <label>成交金額 (NT$)</label>
+        <input type="number" id="visit-amount" placeholder="0" inputmode="numeric">
+      </div>
+      <div class="form-group">
+        <label>備註（選填）</label>
+        <textarea id="visit-notes" placeholder="客戶反饋、競品資訊、下次跟進..."></textarea>
+      </div>
+      <button class="btn-primary" onclick="submitVisit()">儲存記錄</button>
+    </div>
+  </div>
+
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
+  <script type="module" src="app.js"></script>
+</body>
+</html>
