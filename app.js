@@ -1,10 +1,12 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import * as XLSX from 'https://esm.sh/xlsx@0.18.5'
+import { parseSalesWS, uploadSalesToSupabase, getSalesDataMeta, deleteSalesByMonth } from './upload.js'
 
 const SUPABASE_URL = 'https://trxmfvosyfnlidmyelzs.supabase.co'
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRyeG1mdm9zeWZubGlkbXllbHpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgyMTU5NDUsImV4cCI6MjA5Mzc5MTk0NX0.auFOS6ZtcmhsXMWBctFtRr-KnKmGDh4E5jhnk79Vbx0'
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY)
 
-let currentUser=null,currentRep=null,todayRoute=null,visitResult='成交',allCustomers=[]
+let currentUser=null, currentRep=null, todayRoute=null, visitResult='成交', allCustomers=[]
 
 function avatarColors(i){return['av-blue','av-green','av-amber','av-red'][i%4]}
 function initials(n=''){return n.replace(/\s/g,'').slice(0,2)}
@@ -20,9 +22,9 @@ function visitUrgency(last,interval){
 }
 function showError(msg){
   const el=document.getElementById('login-error')
-  el.textContent=msg;el.style.display='block'
+  el.textContent=msg; el.style.display='block'
   const btn=document.getElementById('btn-login')
-  btn.disabled=false;btn.textContent='登入'
+  btn.disabled=false; btn.textContent='登入'
 }
 
 window.handleLogin=async()=>{
@@ -30,12 +32,12 @@ window.handleLogin=async()=>{
   const pwd=document.getElementById('login-password').value
   const btn=document.getElementById('btn-login')
   document.getElementById('login-error').style.display='none'
-  btn.disabled=true;btn.textContent='登入中...'
+  btn.disabled=true; btn.textContent='登入中...'
   const{data:authData,error:authErr}=await sb.auth.signInWithPassword({email,password:pwd})
   if(authErr){showError('帳號或密碼錯誤');return}
   const{data:rep,error:repErr}=await sb.from('sales_rep').select('*').eq('auth_user_id',authData.user.id).single()
   if(repErr||!rep){await sb.auth.signOut();showError('找不到對應帳號，請聯繫管理者');return}
-  currentUser=authData.user;currentRep=rep;enterApp()
+  currentUser=authData.user; currentRep=rep; enterApp()
 }
 
 function enterApp(){
@@ -43,18 +45,18 @@ function enterApp(){
   document.getElementById('screen-main').classList.add('active')
   const badge=document.getElementById('top-role-badge')
   if(currentRep.role==='manager'||currentRep.role==='admin'){
-    badge.textContent='管理者';badge.className='role-badge role-manager'
+    badge.textContent='管理者'; badge.className='role-badge role-manager'
     document.getElementById('bottom-nav').style.display='none'
     renderManagerOverview()
-  }else{
-    badge.textContent='業務';badge.className='role-badge role-sales'
+  } else {
+    badge.textContent='業務'; badge.className='role-badge role-sales'
     switchPage('today')
   }
 }
 
 window.handleLogout=async()=>{
   await sb.auth.signOut()
-  currentUser=currentRep=todayRoute=null;allCustomers=[]
+  currentUser=currentRep=todayRoute=null; allCustomers=[]
   document.getElementById('screen-main').classList.remove('active')
   document.getElementById('screen-login').classList.add('active')
   document.getElementById('login-email').value=''
@@ -73,6 +75,7 @@ window.switchPage=(page)=>{
   if(page==='stats')renderStats()
 }
 
+// ── 今日拜訪 ────────────────────────────────────────────────
 async function renderToday(){
   const c=document.getElementById('page-content')
   c.innerHTML='<div class="loading"><div class="spinner"></div> 載入中</div>'
@@ -82,7 +85,9 @@ async function renderToday(){
     const{data:newRoute}=await sb.from('daily_route').insert({rep_id:currentRep.id,route_date:today()}).select().single()
     todayRoute=newRoute
   }else{todayRoute=route}
-  const{data:visits}=todayRoute?await sb.from('visit_log').select('*, customer(id,name,type,grade)').eq('route_id',todayRoute.id).order('visit_order'):{data:[]}
+  const{data:visits}=todayRoute
+    ?await sb.from('visit_log').select('*, customer(id,name,type,grade)').eq('route_id',todayRoute.id).order('visit_order')
+    :{data:[]}
   const closed=(visits||[]).filter(v=>v.result==='成交')
   const totalAmt=closed.reduce((s,v)=>s+(v.amount||0),0)
   const sysKm=todayRoute?.system_km||0
@@ -113,6 +118,7 @@ async function renderToday(){
   `
 }
 
+// ── 我的客戶 ────────────────────────────────────────────────
 async function renderCustomers(){
   const c=document.getElementById('page-content')
   c.innerHTML='<div class="loading"><div class="spinner"></div> 載入中</div>'
@@ -135,6 +141,7 @@ async function renderCustomers(){
   `
 }
 
+// ── 待辦清單 ────────────────────────────────────────────────
 async function renderPending(){
   const c=document.getElementById('page-content')
   c.innerHTML='<div class="loading"><div class="spinner"></div> 載入中</div>'
@@ -165,6 +172,7 @@ window.markFollowUpDone=async(id)=>{
   renderPending()
 }
 
+// ── 我的數字 ────────────────────────────────────────────────
 async function renderStats(){
   const c=document.getElementById('page-content')
   c.innerHTML='<div class="loading"><div class="spinner"></div> 載入中</div>'
@@ -193,14 +201,44 @@ async function renderStats(){
   `
 }
 
+// ── 管理者總覽 ───────────────────────────────────────────────
 async function renderManagerOverview(){
-  document.getElementById('top-title').textContent='業務總覽'
+  document.getElementById('top-title').textContent='管理者後台'
   const c=document.getElementById('page-content')
   c.innerHTML='<div class="loading"><div class="spinner"></div> 載入中</div>'
+
   const period=today().slice(0,7)
   const{data:achievements}=await sb.from('monthly_achievement').select('*').eq('period',period)
   const{data:addrPending}=await sb.from('address_change_log').select('*, customer(name), sales_rep(name)').eq('status','pending')
+  const meta=await getSalesDataMeta(sb)
+
   c.innerHTML=`
+    <!-- 資料管理區塊 -->
+    <div class="sec-label">資料管理</div>
+    <div class="card" style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div>
+          <div style="font-size:14px;font-weight:500">銷售資料 (SE11)</div>
+          <div style="font-size:12px;color:var(--text-sec);margin-top:3px">
+            ${meta ? `已載入 ${meta.count.toLocaleString()} 筆 · ${meta.from} ～ ${meta.to}` : '尚無資料'}
+          </div>
+        </div>
+        <span class="badge ${meta?'b-success':'b-gray'}">${meta?'已上傳':'未上傳'}</span>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <label class="btn-primary" style="display:inline-flex;align-items:center;gap:6px;justify-content:center;cursor:pointer;font-size:13px;padding:10px 16px">
+          <i class="ti ti-upload"></i> 上傳 SE11
+          <input type="file" accept=".xls,.xlsx" style="display:none" onchange="handleSalesUpload(this)">
+        </label>
+        ${meta?`<button class="btn-outline" onclick="confirmClearSales()">清除資料</button>`:''}
+      </div>
+      <div id="upload-progress" style="display:none;margin-top:12px">
+        <div style="font-size:12px;color:var(--text-sec);margin-bottom:6px" id="upload-msg">處理中...</div>
+        <div class="prog-bar"><div class="prog-fill" id="upload-bar" style="width:0%;background:#185FA5;transition:width .3s"></div></div>
+      </div>
+    </div>
+
+    <!-- 業務達成 -->
     <div class="sec-label">本月業績達成</div>
     ${!achievements?.length?'<div class="empty-state"><i class="ti ti-users"></i>尚無業務資料</div>'
       :achievements.map((a,i)=>`<div class="card">
@@ -209,7 +247,9 @@ async function renderManagerOverview(){
         <span class="badge ${a.amount_pct>=100?'b-success':a.amount_pct>=60?'b-info':'b-danger'}">${Math.round(a.amount_pct||0)}%</span></div>
         <div class="prog-bar" style="margin-top:8px"><div class="prog-fill" style="width:${Math.min(Math.round(a.amount_pct||0),100)}%;background:${a.amount_pct>=100?'#3B6D11':a.amount_pct>=60?'#185FA5':'#A32D2D'}"></div></div>
       </div>`).join('')}
-    ${addrPending?.length?`<div class="sec-label">地址差異待審核 (${addrPending.length})</div>
+
+    <!-- 地址審核 -->
+    ${addrPending?.length?`<div class="sec-label" style="margin-top:16px">地址差異待審核 (${addrPending.length})</div>
       ${addrPending.map(log=>`<div class="card">
         <div class="card-top"><div class="avatar av-amber">${initials(log.customer?.name)}</div>
         <div style="flex:1"><div class="card-name">${log.customer?.name}</div><div class="card-sub">由 ${log.sales_rep?.name} 提報</div></div>
@@ -223,6 +263,59 @@ async function renderManagerOverview(){
   `
 }
 
+// ── 銷售資料上傳 ─────────────────────────────────────────────
+window.handleSalesUpload = async (input) => {
+  const file = input.files[0]
+  if (!file) return
+
+  const prog = document.getElementById('upload-progress')
+  const msg  = document.getElementById('upload-msg')
+  const bar  = document.getElementById('upload-bar')
+  prog.style.display = 'block'
+  msg.textContent = `讀取 ${file.name}...`
+  bar.style.width = '5%'
+
+  try {
+    const buffer = await file.arrayBuffer()
+    const wb = XLSX.read(buffer, { type: 'array', raw: false })
+    const sheetName = wb.SheetNames.find(n => n.includes('銷售') || n === '銷售') || wb.SheetNames[0]
+    if (!sheetName) throw new Error('找不到銷售工作表')
+
+    msg.textContent = `解析資料中...`
+    bar.style.width = '20%'
+
+    const rows = parseSalesWS(wb.Sheets[sheetName], XLSX)
+    msg.textContent = `解析完成，共 ${rows.length.toLocaleString()} 筆，上傳中...`
+    bar.style.width = '30%'
+
+    await uploadSalesToSupabase(sb, rows, (done, total) => {
+      const pct = Math.round(done / total * 70) + 30
+      bar.style.width = pct + '%'
+      msg.textContent = `上傳中 ${done.toLocaleString()} / ${total.toLocaleString()} 筆...`
+    })
+
+    bar.style.width = '100%'
+    msg.textContent = `✅ 完成！共上傳 ${rows.length.toLocaleString()} 筆`
+    msg.style.color = '#3B6D11'
+
+    setTimeout(() => renderManagerOverview(), 1500)
+  } catch (err) {
+    msg.textContent = `❌ 上傳失敗：${err.message}`
+    msg.style.color = '#A32D2D'
+    console.error(err)
+  }
+  input.value = ''
+}
+
+window.confirmClearSales = () => {
+  if (!confirm('確定清除所有銷售資料？此動作無法還原。')) return
+  sb.from('sales_order').delete().neq('id','__none__').then(({error}) => {
+    if (error) { alert('清除失敗：' + error.message); return }
+    renderManagerOverview()
+  })
+}
+
+// ── 地址審核 ─────────────────────────────────────────────────
 window.approveAddr=async(id)=>{
   const{data:log}=await sb.from('address_change_log').select('*').eq('id',id).single()
   if(!log)return
@@ -230,7 +323,6 @@ window.approveAddr=async(id)=>{
   await sb.from('address_change_log').update({status:'approved',reviewed_by:currentRep?.id,reviewed_at:new Date().toISOString()}).eq('id',id)
   renderManagerOverview()
 }
-
 window.rejectAddr=async(id)=>{
   const{data:log}=await sb.from('address_change_log').select('customer_id').eq('id',id).single()
   await sb.from('address_change_log').update({status:'rejected'}).eq('id',id)
@@ -238,7 +330,7 @@ window.rejectAddr=async(id)=>{
   renderManagerOverview()
 }
 
-// ── 搜尋客戶 ─────────────────────────────────────────────────
+// ── 搜尋客戶 Modal ───────────────────────────────────────────
 window.openVisitModal=async()=>{
   document.getElementById('visit-customer-search').value=''
   document.getElementById('visit-customer-id').value=''
@@ -285,12 +377,10 @@ window.selectCustomer=(id,name,type,grade)=>{
   tag.innerHTML=`<span>${name} <span style="opacity:.6;font-size:11px">${type} · ${grade}</span></span><button onclick="clearCustomer()">×</button>`
   tag.style.display='flex'
 }
-
 window.clearCustomer=()=>{
   document.getElementById('visit-customer-id').value=''
   document.getElementById('selected-customer').style.display='none'
 }
-
 window.closeVisitModal=(e)=>{
   if(e.target===document.getElementById('modal-visit'))document.getElementById('modal-visit').classList.remove('open')
 }
