@@ -460,22 +460,26 @@ async function renderStats() {
   const totalAmt = (orders||[]).reduce((s,o)=>s+o.amount,0)
   const totalKm = (routes||[]).reduce((s,r)=>s+(r.approved_km||r.gmaps_km||r.system_km||0),0)
 
-  // 月別業績（近6個月）
-  const day180ago = new Date(Date.now()-180*86400000).toISOString().slice(0,10)
-  const { data: histOrders } = await sb.from('sales_order')
-    .select('amount,year,month')
-    .eq('sales_rep', currentRep.name)
-    .eq('order_type','出貨')
-    .gt('amount',0)
-    .gte('order_date', day180ago)
-    .limit(5000)
-    .range(0, 4999)
-
+  // 月別業績（近6個月）- 分月查詢避免 row limit
+  const now2 = new Date()
+  const months6 = []
+  for (let i = 0; i < 6; i++) {
+    const d = new Date(now2.getFullYear(), now2.getMonth() - i, 1)
+    months6.push({ year: d.getFullYear(), month: d.getMonth() + 1 })
+  }
   const byMonth = {}
-  ;(histOrders||[]).forEach(o => {
-    const ym = String(o.year)+'-'+String(o.month).padStart(2,'0')
-    byMonth[ym] = (byMonth[ym]||0) + o.amount
-  })
+  await Promise.all(months6.map(async ({year, month}) => {
+    const { data } = await sb.from('sales_order')
+      .select('amount')
+      .eq('sales_rep', currentRep.name)
+      .eq('order_type', '出貨')
+      .eq('year', year)
+      .eq('month', month)
+      .gt('amount', 0)
+      .limit(2000)
+    const ym = String(year)+'-'+String(month).padStart(2,'0')
+    byMonth[ym] = (data||[]).reduce((s,o)=>s+o.amount, 0)
+  }))
 
   const amtTarget = quota?.amount_target || 0
   const amtPct = amtTarget > 0 ? Math.min(Math.round(totalAmt/amtTarget*100),100) : null
