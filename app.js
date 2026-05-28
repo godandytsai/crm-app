@@ -468,7 +468,7 @@ async function renderStats() {
   `
 }
 
-async function renderManagerOverview() {
+window.renderManagerOverview = async function() {
   document.getElementById('top-title').textContent = '管理者後台'
   const c = document.getElementById('page-content')
   c.innerHTML = '<div class="loading"><div class="spinner"></div> 載入中</div>'
