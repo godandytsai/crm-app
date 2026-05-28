@@ -90,9 +90,18 @@ window.switchPage = (page) => {
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'))
   const nav = document.getElementById('nav-'+page)
   if (nav) nav.classList.add('active')
-  const titles = {today:'今日拜訪',customers:'我的客戶',pending:'待辦清單',stats:'我的數字'}
-  document.getElementById('top-title').textContent = titles[page]||''
+  const titleEl = document.getElementById('top-title')
+  const pageTitles = {customers:'我的客戶',pending:'待辦清單',stats:'我的數字',history:'拜訪歷史'}
+  if (page === 'today') {
+    const now = new Date()
+    const dateStr = (now.getMonth()+1) + '月' + now.getDate() + '日'
+    const name = currentRep?.name || ''
+    titleEl.innerHTML = `<span style="font-weight:400;font-size:12px;color:#65655C">${dateStr}</span>&nbsp;&nbsp;<span style="font-weight:600">您好，${name}</span>`
+  } else {
+    titleEl.textContent = pageTitles[page] || page
+  }
   if (page==='today') renderToday()
+  if (page==='history') renderHistory()
   if (page==='customers') renderCustomers()
   if (page==='pending') renderPending()
   if (page==='stats') renderStats()
@@ -449,7 +458,7 @@ async function renderStats() {
       </div>
     </div>`:''}
     <div class="metric-row">
-      <div class="metric-card"><div class="mc-label">累計里程</div><div class="mc-val">${Math.round(totalKm)}<span> km</span></div><div class="mc-sub">油資 NT$${Math.round(totalKm*4)}</div></div>
+      <div class="metric-card"><div class="mc-label">累計里程</div><div class="mc-val">${Math.round(totalKm*10)/10}<span> km</span></div><div class="mc-sub">油資 NT$${Math.round(totalKm*4)}</div></div>
       <div class="metric-card"><div class="mc-label">里程補貼</div><div class="mc-val" style="font-size:16px">NT$${Math.round(totalKm*4).toLocaleString()}</div></div>
     </div>
     <div class="sec-label">近6個月業績</div>
@@ -468,7 +477,7 @@ async function renderStats() {
   `
 }
 
-window.renderManagerOverview = async function() {
+async function renderManagerOverview() {
   document.getElementById('top-title').textContent = '管理者後台'
   const c = document.getElementById('page-content')
   c.innerHTML = '<div class="loading"><div class="spinner"></div> 載入中</div>'
@@ -755,7 +764,7 @@ window.renderManagerOverview = async function() {
     <div class="metric-card"><div class="mc-label">本月成交</div><div class="mc-val">${totalClosed}<span> 筆</span></div></div>
   </div>`
   html += statsArr.map((s,i) => `
-    <div class="card" style="cursor:pointer" onclick="showRepDetail('${s.id}')">
+    <div class="card">
       <div class="card-top">
         <div class="avatar ${avatarColors(i)}">${initials(s.name)}</div>
         <div style="flex:1">
@@ -1327,6 +1336,11 @@ window.openVisitModal = async () => {
     _visitCustomers = data || []
   }
 
+  // 預先顯示區域→ABC 結構
+  const searchEl = document.getElementById('visit-customer-search')
+  searchEl.addEventListener('focus', () => searchCustomers(''), {once:false})
+  searchCustomers('')
+
   // 綁定 pill 選擇
   document.querySelectorAll('#visit-result-pills .pill').forEach(p => {
     p.onclick = () => {
@@ -1342,17 +1356,49 @@ window.openVisitModal = async () => {
 window.searchCustomers = (kw) => {
   const dd = document.getElementById('customer-dropdown')
   const kl = kw.trim().toLowerCase()
-  if (!kl) { dd.style.display='none'; return }
-  const hits = _visitCustomers.filter(c => c.name.toLowerCase().includes(kl)).slice(0,10)
+
+  if (!kl) {
+    if (!_visitCustomers.length) { dd.style.display='none'; return }
+    const regionMap = {}
+    _visitCustomers.forEach(c => {
+      const reg = c.region || c.type || '未分類'
+      if (!regionMap[reg]) regionMap[reg] = {A:[],B:[],C:[],'其他':[]}
+      const g = ['A','B','C'].includes(c.grade) ? c.grade : '其他'
+      regionMap[reg][g].push(c)
+    })
+    let html = ''
+    Object.keys(regionMap).sort().forEach(reg => {
+      const grps = regionMap[reg]
+      const total = Object.values(grps).reduce((s,a)=>s+a.length,0)
+      if (!total) return
+      html += `<div style="padding:6px 12px 2px;font-size:11px;font-weight:600;color:#1A472A;background:#f0f8f4;border-bottom:1px solid #e8f4ec">${reg}（${total}）</div>`
+      ;['A','B','C','其他'].forEach(grade => {
+        const list = grps[grade]
+        if (!list.length) return
+        html += `<div style="padding:3px 12px 1px 20px;font-size:10px;color:#aaa">${grade==='其他'?'未分級':grade+' 級'}（${list.length}）</div>`
+        list.forEach(c => {
+          const safeName = c.name.replace(/'/g,"\'")
+          html += `<div class="dropdown-item" style="padding:6px 12px 6px 28px" onclick="selectCustomer('${c.id}','${safeName}')">
+            ${c.name}<span style="font-size:10px;color:#999;margin-left:6px">${c.grade||''}</span>
+          </div>`
+        })
+      })
+    })
+    dd.innerHTML = html || '<div style="padding:10px 12px;color:#aaa;font-size:13px">無客戶資料</div>'
+    dd.style.display = 'block'
+    return
+  }
+
+  const hits = _visitCustomers.filter(c => c.name.toLowerCase().includes(kl)).slice(0,15)
   if (!hits.length) { dd.style.display='none'; return }
-  dd.innerHTML = hits.map(c =>
-    `<div class="dropdown-item" onclick="selectCustomer('${c.id}','${c.name.replace(/'/g,"\'")}')">
-      ${c.name}<span style="font-size:10px;color:#999;margin-left:6px">${c.grade||''}</span>
+  dd.innerHTML = hits.map(c => {
+    const safeName = c.name.replace(/'/g,"\'")
+    return `<div class="dropdown-item" onclick="selectCustomer('${c.id}','${safeName}')">
+      ${c.name}<span style="font-size:10px;color:#999;margin-left:6px">${c.region||c.type||''} ${c.grade||''}</span>
     </div>`
-  ).join('')
+  }).join('')
   dd.style.display = 'block'
 }
-
 window.selectCustomer = (id, name) => {
   document.getElementById('visit-customer-id').value = id
   document.getElementById('visit-customer-search').value = ''
@@ -1651,89 +1697,60 @@ window.submitKm = async (sysKm) => {
   }
 }
 
-// ── 管理者查看業務詳情 ──
-window.showRepDetail = async (repId) => {
+// ── 拜訪歷史 ──
+async function renderHistory() {
   const c = document.getElementById('page-content')
   c.innerHTML = '<div class="loading"><div class="spinner"></div> 載入中</div>'
+  if (!currentRep) return
 
-  const todayStr = today()
-  const period = todayStr.slice(0,7)
-  const monthStart = period + '-01'
-
-  // 拉這位業務的資料
-  const { data: rep } = await sb.from('sales_rep').select('id,name').eq('id',repId).single()
-
-  // 本月所有 routes
+  const day60ago = new Date(Date.now()-60*86400000).toISOString().slice(0,10)
   const { data: routes } = await sb.from('daily_route')
-    .select('id,route_date,system_km,gmaps_km,approved_km')
-    .eq('rep_id', repId)
-    .gte('route_date', monthStart)
+    .select('id,route_date')
+    .eq('rep_id', currentRep.id)
+    .gte('route_date', day60ago)
     .order('route_date', {ascending:false})
 
   if (!routes?.length) {
-    c.innerHTML = `
-      <button class="btn-ghost" style="margin-bottom:12px" onclick="renderManagerOverview()">← 返回</button>
-      <div class="empty-state">本月尚無出勤記錄</div>`
+    c.innerHTML = '<div class="empty-state"><i class="ti ti-history"></i>近60天無拜訪記錄</div>'
     return
   }
 
   const routeIds = routes.map(r=>r.id)
   const routeDateMap = {}
-  routes.forEach(r => { routeDateMap[r.id] = r })
+  routes.forEach(r => { routeDateMap[r.id] = r.route_date })
 
-  // 拉本月所有拜訪
   const { data: allVisits } = await sb.from('visit_log')
-    .select('id,route_id,result,amount,notes,visited_at,customer(id,name,type,grade)')
+    .select('*, customer(id,name,type,grade)')
     .in('route_id', routeIds)
     .order('visited_at', {ascending:false})
-    .limit(1000)
+    .limit(500)
 
-  // 依日期分組
-  const byRoute = {}
-  routes.forEach(r => { byRoute[r.id] = { route: r, visits: [] } })
-  ;(allVisits||[]).forEach(v => {
-    if (byRoute[v.route_id]) byRoute[v.route_id].visits.push(v)
+  if (!allVisits?.length) {
+    c.innerHTML = '<div class="empty-state"><i class="ti ti-history"></i>近60天無拜訪記錄</div>'
+    return
+  }
+
+  const byDate = {}
+  allVisits.forEach(v => {
+    const date = routeDateMap[v.route_id] || v.visited_at?.slice(0,10)
+    if (!byDate[date]) byDate[date] = []
+    byDate[date].push(v)
   })
 
-  const totalVisits = (allVisits||[]).length
-  const totalClosed = (allVisits||[]).filter(v=>v.result==='成交').length
-  const totalAmt = (allVisits||[]).filter(v=>v.result==='成交').reduce((s,v)=>s+(v.amount||0),0)
-  const totalKm = routes.reduce((s,r)=>s+(r.approved_km||r.gmaps_km||r.system_km||0),0)
+  const dates = Object.keys(byDate).sort((a,b)=>b.localeCompare(a))
 
-  let html = `
-    <button class="btn-ghost" style="margin-bottom:12px" onclick="renderManagerOverview()">← 返回</button>
-    <div style="font-size:18px;font-weight:600;margin-bottom:4px">${rep?.name}</div>
-    <div style="font-size:12px;color:#aaa;margin-bottom:16px">${period} 月份統計</div>
-
-    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px">
-      <div class="metric-card"><div class="mc-label">本月拜訪</div><div class="mc-val">${totalVisits}<span> 次</span></div></div>
-      <div class="metric-card"><div class="mc-label">成交</div><div class="mc-val">${totalClosed}<span> 筆</span></div><div class="mc-sub">成交率 ${totalVisits?Math.round(totalClosed/totalVisits*100):0}%</div></div>
-      <div class="metric-card"><div class="mc-label">成交金額</div><div class="mc-val" style="font-size:15px">NT$${Math.round(totalAmt/1000)}K</div></div>
-      <div class="metric-card"><div class="mc-label">累計里程</div><div class="mc-val">${Math.round(totalKm*10)/10}<span> km</span></div></div>
-    </div>
-
-    <div class="sec-label">每日拜訪明細</div>
-  `
-
-  routes.forEach(r => {
-    const { route, visits } = byRoute[r.id]
-    const closed = visits.filter(v=>v.result==='成交')
+  let html = `<div style="font-size:12px;color:#aaa;margin-bottom:12px">近60天拜訪記錄</div>`
+  dates.forEach(date => {
+    const dayVisits = byDate[date]
+    const closed = dayVisits.filter(v=>v.result==='成交')
     const amt = closed.reduce((s,v)=>s+(v.amount||0),0)
-    const km = route.approved_km||route.gmaps_km||route.system_km||0
-
     html += `<div style="margin-bottom:16px">
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#f8f7f4;border-radius:8px;margin-bottom:6px">
-        <span style="font-size:13px;font-weight:600">${route.route_date}</span>
-        <div style="display:flex;gap:12px;font-size:11px;color:#65655C">
-          <span>拜訪 ${visits.length} 家</span>
-          <span>成交 ${closed.length} 筆${amt?'・NT$'+Math.round(amt/1000)+'K':''}</span>
-          ${km?`<span>${Math.round(km*10)/10} km</span>`:''}
-        </div>
-      </div>`
-
-    if (visits.length) {
-      visits.forEach((v,i) => {
-        html += `<div class="card" style="border-left:3px solid ${v.result==='成交'?'#52B788':v.result==='待跟進'?'#EF9F27':'#ddd'};margin-bottom:6px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <span style="font-size:13px;font-weight:600">${date}</span>
+        <span style="font-size:11px;color:#aaa">${dayVisits.length} 家｜成交 ${closed.length} 家${amt?'｜NT$'+amt.toLocaleString():''}</span>
+      </div>
+      ${dayVisits.map((v,i) => `
+        <div class="card" style="border-left:3px solid ${v.result==='成交'?'#52B788':v.result==='待跟進'?'#EF9F27':'#ddd'};margin-bottom:6px">
           <div class="card-top">
             <div class="avatar ${avatarColors(i)}">${initials(v.customer?.name)}</div>
             <div style="flex:1">
@@ -1744,14 +1761,9 @@ window.showRepDetail = async (repId) => {
           </div>
           ${v.amount?`<div class="card-meta"><span><i class="ti ti-currency-dollar"></i>NT$${v.amount.toLocaleString()}</span></div>`:''}
           ${v.notes?`<div class="card-meta"><span><i class="ti ti-notes"></i>${v.notes}</span></div>`:''}
-        </div>`
-      })
-    } else {
-      html += `<div style="font-size:12px;color:#aaa;padding:8px 0">無拜訪記錄（僅出勤）</div>`
-    }
-    html += `</div>`
+        </div>`).join('')}
+    </div>`
   })
-
   c.innerHTML = html
 }
 
