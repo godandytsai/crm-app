@@ -90,9 +90,18 @@ window.switchPage = (page) => {
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'))
   const nav = document.getElementById('nav-'+page)
   if (nav) nav.classList.add('active')
-  const titles = {today:'今日拜訪',customers:'我的客戶',pending:'待辦清單',stats:'我的數字'}
-  document.getElementById('top-title').textContent = titles[page]||''
+  const titles = {today:'today',customers:'我的客戶',pending:'待辦清單',stats:'我的數字'}
+  const titleEl = document.getElementById('top-title')
+  if (page === 'today') {
+    const now = new Date()
+    const dateStr = now.getMonth()+1 + '月' + now.getDate() + '日'
+    const name = currentRep?.name || ''
+    titleEl.innerHTML = `<span style="font-weight:400;font-size:13px;color:#65655C">${dateStr}</span><br><span style="font-size:15px;font-weight:600">您好，${name}</span>`
+  } else {
+    titleEl.textContent = titles[page]||''
+  }
   if (page==='today') renderToday()
+  if (page==='history') renderHistory()
   if (page==='customers') renderCustomers()
   if (page==='pending') renderPending()
   if (page==='stats') renderStats()
@@ -2023,6 +2032,87 @@ window.mgrUploadCustomers = async (inp) => {
   addLog('正在重新計算 ABC 等級...')
   await recalcABC()
   inp.value = ''
+}
+
+// ── 拜訪歷史 ──
+async function renderHistory() {
+  const c = document.getElementById('page-content')
+  c.innerHTML = '<div class="loading"><div class="spinner"></div> 載入中</div>'
+  if (!currentRep) return
+
+  // 拉近60天的拜訪記錄
+  const day60ago = new Date(Date.now()-60*86400000).toISOString().slice(0,10)
+  const { data: visits } = await sb.from('visit_log')
+    .select('*, customer(id,name,type,grade)')
+    .eq('daily_route.rep_id', currentRep.id)
+    .gte('visited_at', day60ago+'T00:00:00')
+    .order('visited_at', {ascending:false})
+    .limit(200)
+
+  // 改用 route_id join
+  const { data: routes } = await sb.from('daily_route')
+    .select('id,route_date')
+    .eq('rep_id', currentRep.id)
+    .gte('route_date', day60ago)
+    .order('route_date', {ascending:false})
+
+  if (!routes?.length) {
+    c.innerHTML = '<div class="empty-state"><i class="ti ti-history"></i>近60天無拜訪記錄</div>'
+    return
+  }
+
+  const routeIds = routes.map(r=>r.id)
+  const routeDateMap = {}
+  routes.forEach(r => { routeDateMap[r.id] = r.route_date })
+
+  const { data: allVisits } = await sb.from('visit_log')
+    .select('*, customer(id,name,type,grade)')
+    .in('route_id', routeIds)
+    .order('visited_at', {ascending:false})
+    .limit(500)
+
+  if (!allVisits?.length) {
+    c.innerHTML = '<div class="empty-state"><i class="ti ti-history"></i>近60天無拜訪記錄</div>'
+    return
+  }
+
+  // 依日期分組
+  const byDate = {}
+  allVisits.forEach(v => {
+    const date = routeDateMap[v.route_id] || v.visited_at?.slice(0,10)
+    if (!byDate[date]) byDate[date] = []
+    byDate[date].push(v)
+  })
+
+  const dates = Object.keys(byDate).sort((a,b)=>b.localeCompare(a))
+
+  let html = `<div style="font-size:12px;color:#aaa;margin-bottom:12px">近60天拜訪記錄</div>`
+  dates.forEach(date => {
+    const dayVisits = byDate[date]
+    const closed = dayVisits.filter(v=>v.result==='成交')
+    const amt = closed.reduce((s,v)=>s+(v.amount||0),0)
+    html += `<div style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <span style="font-size:13px;font-weight:600">${date}</span>
+        <span style="font-size:11px;color:#aaa">${dayVisits.length} 家｜成交 ${closed.length} 家${amt?'｜NT$'+amt.toLocaleString():''}</span>
+      </div>
+      ${dayVisits.map((v,i) => `
+        <div class="card" style="border-left:3px solid ${v.result==='成交'?'#52B788':v.result==='待跟進'?'#EF9F27':'#ddd'};margin-bottom:6px">
+          <div class="card-top">
+            <div class="avatar ${avatarColors(i)}">${initials(v.customer?.name)}</div>
+            <div style="flex:1">
+              <div class="card-name">${v.customer?.name||'—'}</div>
+              <div class="card-sub">${v.customer?.type||''} · ${new Date(v.visited_at).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'})}</div>
+            </div>
+            <span class="badge ${v.result==='成交'?'b-success':v.result==='待跟進'?'b-warn':'b-gray'}">${v.result}</span>
+          </div>
+          ${v.amount?`<div class="card-meta"><span><i class="ti ti-currency-dollar"></i>NT$${v.amount.toLocaleString()}</span></div>`:''}
+          ${v.notes?`<div class="card-meta"><span><i class="ti ti-notes"></i>${v.notes}</span></div>`:''}
+        </div>`).join('')}
+    </div>`
+  })
+
+  c.innerHTML = html
 }
 
 document.getElementById('login-password').addEventListener('keydown', e => {
