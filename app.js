@@ -1336,10 +1336,13 @@ window.openVisitModal = async () => {
     _visitCustomers = data || []
   }
 
-  // 預先顯示區域→ABC 結構
+  // 點搜尋框時顯示區域→ABC 結構
   const searchEl = document.getElementById('visit-customer-search')
-  searchEl.addEventListener('focus', () => searchCustomers(''), {once:false})
-  searchCustomers('')
+  // 移除舊事件，重新綁定
+  const newEl = searchEl.cloneNode(true)
+  searchEl.parentNode.replaceChild(newEl, searchEl)
+  newEl.addEventListener('focus', () => searchCustomers(''))
+  newEl.addEventListener('input', (e) => searchCustomers(e.target.value))
 
   // 綁定 pill 選擇
   document.querySelectorAll('#visit-result-pills .pill').forEach(p => {
