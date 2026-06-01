@@ -60,7 +60,6 @@ function enterApp() {
   document.getElementById('screen-login').classList.remove('active')
   document.getElementById('screen-main').classList.add('active')
   const badge = document.getElementById('top-role-badge')
-  // 問候語：放在 top-title
   if (currentRep?.name) {
     const titleEl = document.getElementById('top-title')
     if (titleEl) titleEl.textContent = '您好，' + currentRep.name
@@ -182,7 +181,6 @@ window.renderCustomers = async function() {
   const { data: customers } = await q
   if (!customers?.length) { c.innerHTML = '<div class="empty-state"><i class="ti ti-building-store"></i>尚無客戶資料</div>'; return }
 
-  // 拜訪記錄
   const day90ago = new Date(Date.now()-90*86400000).toISOString().slice(0,10)
   const custIds = customers.map(cu=>cu.id)
   const { data: recentVisits } = await sb.from('visit_log')
@@ -191,7 +189,6 @@ window.renderCustomers = async function() {
   const lastVisitMap = {}
   ;(recentVisits||[]).forEach(v => { if (!lastVisitMap[v.customer_id]) lastVisitMap[v.customer_id] = v.visited_at?.slice(0,10) })
 
-  // 快取供點擊詳情用
   window._allCustomers = customers
 
   function gradeTag(g) {
@@ -228,7 +225,6 @@ window.renderCustomers = async function() {
   }
 
   const gradeOrder = [{key:'A',label:'A 級'},{key:'B',label:'B 級'},{key:'C',label:'C 級'},{key:'others',label:'未分級'}]
-
   let listHtml = ''
   gradeOrder.forEach(({key,label}) => {
     const list = groups[key]
@@ -269,7 +265,6 @@ window.openCustomerDetail = async (custId) => {
   const c = document.getElementById('page-content')
   c.innerHTML = '<div class="loading"><div class="spinner"></div> 載入中</div>'
 
-  // 近6個月出貨資料
   const day180ago = new Date(Date.now()-180*86400000).toISOString().slice(0,10)
   const { data: orders } = await sb.from('sales_order')
     .select('order_date,amount,series,category,material,order_type')
@@ -279,7 +274,6 @@ window.openCustomerDetail = async (custId) => {
     .order('order_date',{ascending:false})
     .limit(50)
 
-  // 近拜訪記錄
   const { data: visits } = await sb.from('visit_log')
     .select('visited_at,result,amount,notes').eq('customer_id', custId)
     .order('visited_at',{ascending:false}).limit(10)
@@ -306,19 +300,16 @@ window.openCustomerDetail = async (custId) => {
         <div style="font-size:12px;color:#999">${cu.type||''}</div>
       </div>
     </div>
-
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
       <div class="metric-card"><div class="mc-label">近6月交易</div><div class="mc-val" style="font-size:16px">NT$${Math.round(totalAmt/1000)}K</div></div>
       <div class="metric-card"><div class="mc-label">交易筆數</div><div class="mc-val">${(orders||[]).length}<span> 筆</span></div></div>
     </div>
-
     <div class="sec-label">月別銷售</div>
     ${Object.entries(byMonth).sort((a,b)=>b[0].localeCompare(a[0])).map(([ym,amt])=>`
       <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:.5px solid #f0ede8">
         <span style="font-size:13px;color:#555">${ym}</span>
         <span style="font-size:13px;font-weight:500">NT$${Math.round(amt).toLocaleString()}</span>
       </div>`).join('')||'<div style="color:#aaa;font-size:13px;padding:12px 0">近6個月無交易記錄</div>'}
-
     <div class="sec-label" style="margin-top:16px">近期拜訪</div>
     ${!(visits||[]).length?'<div style="color:#aaa;font-size:13px;padding:12px 0">尚無拜訪記錄</div>'
       :(visits||[]).map(v=>`
@@ -330,7 +321,6 @@ window.openCustomerDetail = async (custId) => {
           ${v.amount?`<div style="font-size:13px;font-weight:500">NT$${v.amount.toLocaleString()}</div>`:''}
           ${v.notes?`<div style="font-size:12px;color:#777;margin-top:2px">${v.notes}</div>`:''}
         </div>`).join('')}
-
     <div style="margin-top:16px">
       <div class="sec-label">地址</div>
       <div style="font-size:13px;color:#555">${cu.actual_address||cu.erp_address||'未設定'}</div>
@@ -338,6 +328,7 @@ window.openCustomerDetail = async (custId) => {
     </div>
   `
 }
+
 async function renderPending() {
   const c = document.getElementById('page-content')
   c.innerHTML = '<div class="loading"><div class="spinner"></div> 載入中</div>'
@@ -378,50 +369,25 @@ async function renderStats() {
   const period = today().slice(0,7)
   const monthStart = period + '-01'
 
-  // 平行拉：本月出貨、本月拜訪、里程、配額
   const [
     { data: orders },
     { data: visits },
     { data: routes },
     { data: quota }
   ] = await Promise.all([
-    sb.from('sales_order')
-      .select('amount,order_date')
-      .eq('sales_rep', currentRep.name)
-      .eq('order_type','出貨')
-      .gt('amount', 0)
-      .gte('order_date', monthStart)
-      .limit(2000),
-    sb.from('visit_log')
-      .select('id,result,visited_at,route_id,daily_route(rep_id)')
-      .gte('visited_at', monthStart+'T00:00:00'),
-    sb.from('daily_route')
-      .select('approved_km,system_km,gmaps_km')
-      .eq('rep_id', currentRep.id)
-      .gte('route_date', monthStart),
-    sb.from('quota')
-      .select('amount_target,visit_target')
-      .eq('rep_id', currentRep.id)
-      .eq('period', period)
-      .maybeSingle()
+    sb.from('sales_order').select('amount,order_date').eq('sales_rep', currentRep.name).eq('order_type','出貨').gt('amount', 0).gte('order_date', monthStart).limit(2000),
+    sb.from('visit_log').select('id,result,visited_at,route_id,daily_route(rep_id)').gte('visited_at', monthStart+'T00:00:00'),
+    sb.from('daily_route').select('approved_km,system_km,gmaps_km').eq('rep_id', currentRep.id).gte('route_date', monthStart),
+    sb.from('quota').select('amount_target,visit_target').eq('rep_id', currentRep.id).eq('period', period).maybeSingle()
   ])
 
-  // 過濾自己的拜訪（透過 route 的 rep_id）
   const myVisits = (visits||[]).filter(v => v.daily_route?.rep_id === currentRep.id)
   const closedVisits = myVisits.filter(v => v.result === '成交')
-
   const totalAmt = (orders||[]).reduce((s,o)=>s+o.amount,0)
   const totalKm = (routes||[]).reduce((s,r)=>s+(r.approved_km||r.gmaps_km||r.system_km||0),0)
 
-  // 月別業績（近6個月）
   const day180ago = new Date(Date.now()-180*86400000).toISOString().slice(0,10)
-  const { data: histOrders } = await sb.from('sales_order')
-    .select('amount,year,month')
-    .eq('sales_rep', currentRep.name)
-    .eq('order_type','出貨')
-    .gt('amount',0)
-    .gte('order_date', day180ago)
-    .limit(5000)
+  const { data: histOrders } = await sb.from('sales_order').select('amount,year,month').eq('sales_rep', currentRep.name).eq('order_type','出貨').gt('amount',0).gte('order_date', day180ago).limit(5000)
 
   const byMonth = {}
   ;(histOrders||[]).forEach(o => {
@@ -465,13 +431,8 @@ async function renderStats() {
     <div class="card">
       ${Object.entries(byMonth).sort((a,b)=>b[0].localeCompare(a[0])).map(([ym,amt])=>`
         <div class="prog-wrap">
-          <div class="prog-label">
-            <span>${ym}</span>
-            <span>NT$${Math.round(amt/1000)}K</span>
-          </div>
-          <div class="prog-bar">
-            <div class="prog-fill" style="width:${Math.min(Math.round(amt/Math.max(...Object.values(byMonth))*100),100)}%;background:#185FA5"></div>
-          </div>
+          <div class="prog-label"><span>${ym}</span><span>NT$${Math.round(amt/1000)}K</span></div>
+          <div class="prog-bar"><div class="prog-fill" style="width:${Math.min(Math.round(amt/Math.max(...Object.values(byMonth))*100),100)}%;background:#185FA5"></div></div>
         </div>`).join('')||'<div style="color:#aaa;font-size:13px">尚無資料</div>'}
     </div>
   `
@@ -507,19 +468,14 @@ async function renderManagerOverview() {
   ] = await Promise.all([
     sb.from('sales_rep').select('id,name,role').in('role',['sales','manager']).in('name',ACTIVE_REPS).order('name'),
     sb.from('daily_route').select('id,rep_id,route_date').gte('route_date', monthStart),
-    sb.from('visit_log').select('id,route_id,result,amount,notes,visited_at,follow_up_status,customer_id,customer(name)')
-      .gte('visited_at', monthStart+'T00:00:00'),
+    sb.from('visit_log').select('id,route_id,result,amount,notes,visited_at,follow_up_status,customer_id,customer(name)').gte('visited_at', monthStart+'T00:00:00'),
     sb.from('customer').select('id,name,assigned_rep_id,visit_interval_days,is_active,type,grade'),
     sb.from('address_change_log').select('*, customer(name), sales_rep(name)').eq('status','pending'),
-    sb.from('visit_log').select('id,route_id,customer_id,notes,visited_at,customer(name),daily_route(route_date,rep_id)')
-      .eq('result','待跟進').eq('follow_up_status','pending'),
-    sb.from('sales_order').select('customer_name,amount,year,month,day,order_date')
-      .eq('order_type','出貨').gt('amount',0).gte('order_date', day180ago),
-    // 近180天有被拜訪過的 customer_id（只拿 id，限制筆數避免 timeout）
+    sb.from('visit_log').select('id,route_id,customer_id,notes,visited_at,customer(name),daily_route(route_date,rep_id)').eq('result','待跟進').eq('follow_up_status','pending'),
+    sb.from('sales_order').select('customer_name,amount,year,month,day,order_date').eq('order_type','出貨').gt('amount',0).gte('order_date', day180ago),
     sb.from('visit_log').select('customer_id').gte('visited_at', day180ago+'T00:00:00').limit(5000)
   ])
 
-  // ── 輔助 map ──
   const routeRepMap = {}
   ;(allRoutes||[]).forEach(r => { routeRepMap[r.id] = r.rep_id })
   const todayRouteRepIds = new Set((allRoutes||[]).filter(r=>r.route_date===todayStr).map(r=>r.rep_id))
@@ -528,7 +484,6 @@ async function renderManagerOverview() {
   const activeRepIds = new Set(Object.values(repMap).filter(r=>ACTIVE_REPS.includes(r.name)).map(r=>r.id))
   const visitedCustIds = new Set((allVisitedIds||[]).map(v=>v.customer_id))
 
-  // ── 本月業務統計 ──
   const repStats = {}
   ;(reps||[]).filter(r=>r.role==='sales'&&ACTIVE_REPS.includes(r.name)).forEach(r => {
     repStats[r.id] = { name:r.name, id:r.id, visits:0, closed:0, amount:0, notesFilled:0, todayOut:todayRouteRepIds.has(r.id) }
@@ -546,9 +501,8 @@ async function renderManagerOverview() {
   const totalVisits = statsArr.reduce((s,r)=>s+r.visits,0)
   const totalClosed = statsArr.reduce((s,r)=>s+r.closed,0)
 
-  // ── sales_order 分析 ──
   const ordersByName = {}
-  const lastOrderMap = {}  // customer_name -> 最後交易日
+  const lastOrderMap = {}
   ;(recentOrders||[]).forEach(o => {
     const k = o.customer_name; if (!k) return
     if (!ordersByName[k]) ordersByName[k] = { thisMonth:0, lastMonth:0, lastDate:null }
@@ -560,12 +514,8 @@ async function renderManagerOverview() {
     if (d && (!lastOrderMap[k] || d > lastOrderMap[k])) lastOrderMap[k] = d
   })
 
-  // 只處理三位業務的客戶
-  const activeCusts = (customers||[]).filter(cu =>
-    cu.is_active && cu.assigned_rep_id && activeRepIds.has(cu.assigned_rep_id)
-  )
+  const activeCusts = (customers||[]).filter(cu => cu.is_active && cu.assigned_rep_id && activeRepIds.has(cu.assigned_rep_id))
 
-  // ABC 等級顏色
   function gradeStyle(grade) {
     if (grade==='A') return 'border-left:3px solid #C8A93B;'
     if (grade==='B') return 'border-left:3px solid #6B9FD4;'
@@ -579,12 +529,7 @@ async function renderManagerOverview() {
     return ''
   }
 
-  // 未拜訪客戶：近半年有交易但從未被拜訪
-  const unvisitedCusts = activeCusts.filter(cu => {
-    const hasOrder = !!lastOrderMap[cu.name]
-    const wasVisited = visitedCustIds.has(cu.id)
-    return hasOrder && !wasVisited
-  }).map(cu => {
+  const unvisitedCusts = activeCusts.filter(cu => !!lastOrderMap[cu.name] && !visitedCustIds.has(cu.id)).map(cu => {
     const rep = repMap[cu.assigned_rep_id]
     return { ...cu, lastOrderDate: lastOrderMap[cu.name], repName: rep?.name||'未指派' }
   }).sort((a,b) => {
@@ -593,10 +538,9 @@ async function renderManagerOverview() {
     return (b.lastOrderDate||'').localeCompare(a.lastOrderDate||'')
   })
 
-  // 超過30天未交易
   const noTradeCusts = activeCusts.filter(cu => {
     const last = lastOrderMap[cu.name]
-    if (!last) return false  // 近180天完全無交易不在這裡
+    if (!last) return false
     return last < day30ago
   }).map(cu => {
     const last = lastOrderMap[cu.name]
@@ -609,7 +553,6 @@ async function renderManagerOverview() {
     return b.daysSince - a.daysSince
   })
 
-  // 金額下降
   const decliningCusts = activeCusts.filter(cu => {
     const ord = ordersByName[cu.name]
     if (!ord || !ord.lastMonth || ord.lastMonth < 5000) return false
@@ -625,10 +568,8 @@ async function renderManagerOverview() {
     return b.dropPct - a.dropPct
   })
 
-  // 久未拜訪（超過 visit_interval_days）
   const lastVisitMap = {}
-  const { data: hist90 } = await sb.from('visit_log').select('customer_id,visited_at')
-    .gte('visited_at', day90ago+'T00:00:00').limit(5000)
+  const { data: hist90 } = await sb.from('visit_log').select('customer_id,visited_at').gte('visited_at', day90ago+'T00:00:00').limit(5000)
   ;(hist90||[]).forEach(v => {
     const d = v.visited_at?.slice(0,10)
     if (!d) return
@@ -650,7 +591,6 @@ async function renderManagerOverview() {
     return (b.overBy||0)-(a.overBy||0)
   })
 
-  // ── 渲染客戶卡片（含 ABC 顏色、展開更多）──
   function renderDeclineList(list) {
     if (!list.length) return `<div class="empty-state" style="padding:20px 0">無明顯下降客戶</div>`
     const PREVIEW = 10
@@ -661,10 +601,7 @@ async function renderManagerOverview() {
       return `<div class="card" style="${gradeStyle(cu.grade)}">
         <div class="card-top" style="margin-bottom:10px">
           <div style="flex:1">
-            <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
-              <div class="card-name">${cu.name}</div>
-              ${gradeBadge(cu.grade)}
-            </div>
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px"><div class="card-name">${cu.name}</div>${gradeBadge(cu.grade)}</div>
             <div class="card-sub">${cu.repName}</div>
           </div>
           <span class="badge b-danger" style="font-size:13px;font-weight:700">↓${cu.dropPct}%</span>
@@ -691,14 +628,12 @@ async function renderManagerOverview() {
     if (rest.length) {
       const restId = 'dec-more-'+Math.random().toString(36).slice(2,8)
       h += `<div id="${restId}" style="display:none">${rest.map(renderItem).join('')}</div>`
-      h += `<button class="btn-ghost" style="width:100%;margin-top:6px;font-size:12px"
-              onclick="const el=document.getElementById('${restId}');const btn=this;if(el.style.display==='none'){el.style.display='';btn.textContent='收起 ▲'}else{el.style.display='none';btn.textContent='查看更多 ${rest.length} 家 ▼'}">
-              查看更多 ${rest.length} 家 ▼</button>`
+      h += `<button class="btn-ghost" style="width:100%;margin-top:6px;font-size:12px" onclick="const el=document.getElementById('${restId}');const btn=this;if(el.style.display==='none'){el.style.display='';btn.textContent='收起 ▲'}else{el.style.display='none';btn.textContent='查看更多 ${rest.length} 家 ▼'}">查看更多 ${rest.length} 家 ▼</button>`
     }
     return h
   }
 
-    function renderCustList(list, emptyMsg) {
+  function renderCustList(list, emptyMsg) {
     if (!list.length) return `<div class="empty-state" style="padding:20px 0">${emptyMsg}</div>`
     const PREVIEW = 10
     const shown = list.slice(0, PREVIEW)
@@ -706,37 +641,26 @@ async function renderManagerOverview() {
     let h = shown.map(cu => `
       <div class="card" style="display:flex;align-items:center;gap:12px;padding:10px 14px;${gradeStyle(cu.grade)}">
         <div style="flex:1">
-          <div style="display:flex;align-items:center;gap:6px">
-            <div class="card-name">${cu.name}</div>
-            ${gradeBadge(cu.grade)}
-          </div>
+          <div style="display:flex;align-items:center;gap:6px"><div class="card-name">${cu.name}</div>${gradeBadge(cu.grade)}</div>
           <div class="card-sub">${cu.repName}${cu.lastOrderDate?' · 最後交易 '+cu.lastOrderDate:''}${cu.daysSince?' · '+cu.daysSince+'天未交易':''}${cu.overBy?' · 逾期 '+cu.overBy+'天':''}${cu.dropPct?' · ↓'+cu.dropPct+'%':''}</div>
         </div>
         ${cu.daysSince>60||cu.overBy>30?'<span class="badge b-danger">需關注</span>':cu.daysSince>30||cu.overBy>0?'<span class="badge b-warn">注意</span>':''}
       </div>`).join('')
     if (rest.length) {
       const restId = 'more-'+Math.random().toString(36).slice(2,8)
-      h += `<div id="${restId}" style="display:none">`
-      h += rest.map(cu => `
+      h += `<div id="${restId}" style="display:none">${rest.map(cu => `
         <div class="card" style="display:flex;align-items:center;gap:12px;padding:10px 14px;${gradeStyle(cu.grade)}">
           <div style="flex:1">
-            <div style="display:flex;align-items:center;gap:6px">
-              <div class="card-name">${cu.name}</div>
-              ${gradeBadge(cu.grade)}
-            </div>
+            <div style="display:flex;align-items:center;gap:6px"><div class="card-name">${cu.name}</div>${gradeBadge(cu.grade)}</div>
             <div class="card-sub">${cu.repName}${cu.lastOrderDate?' · 最後交易 '+cu.lastOrderDate:''}${cu.daysSince?' · '+cu.daysSince+'天未交易':''}${cu.overBy?' · 逾期 '+cu.overBy+'天':''}${cu.dropPct?' · ↓'+cu.dropPct+'%':''}</div>
           </div>
           ${cu.daysSince>60||cu.overBy>30?'<span class="badge b-danger">需關注</span>':cu.daysSince>30||cu.overBy>0?'<span class="badge b-warn">注意</span>':''}
-        </div>`).join('')
-      h += `</div>`
-      h += `<button class="btn-ghost" style="width:100%;margin-top:6px;font-size:12px" 
-              onclick="const el=document.getElementById('${restId}');const btn=this;if(el.style.display==='none'){el.style.display='';btn.textContent='收起 ▲'}else{el.style.display='none';btn.textContent='查看更多 ${rest.length} 家 ▼'}">
-              查看更多 ${rest.length} 家 ▼</button>`
+        </div>`).join('')}</div>`
+      h += `<button class="btn-ghost" style="width:100%;margin-top:6px;font-size:12px" onclick="const el=document.getElementById('${restId}');const btn=this;if(el.style.display==='none'){el.style.display='';btn.textContent='收起 ▲'}else{el.style.display='none';btn.textContent='查看更多 ${rest.length} 家 ▼'}">查看更多 ${rest.length} 家 ▼</button>`
     }
     return h
   }
 
-  // ── Tab 架構 ──
   const tabs = [
     { id:'tab-overview', label:'今日概況' },
     { id:'tab-unvisited', label:`未拜訪 ${unvisitedCusts.length}` },
@@ -753,10 +677,8 @@ async function renderManagerOverview() {
     <div style="display:flex;gap:4px;border-bottom:1px solid #e8e6e0;min-width:max-content">
       ${tabs.map((t,i)=>`<button id="${t.id}-btn" onclick="mgrTab('${t.id}')" style="font-size:12px;padding:8px 12px;background:none;border:none;border-bottom:2px solid ${i===0?'#1A472A':'transparent'};color:${i===0?'#1A472A':'#65655C'};cursor:pointer;white-space:nowrap;font-family:inherit">${t.label}</button>`).join('')}
     </div>
-  </div>
-  `
+  </div>`
 
-  // Tab 內容
   html += `<div id="tab-overview">`
   html += `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px">
     <div class="metric-card"><div class="mc-label">今日出勤</div><div class="mc-val">${todayOutCount}<span>/${statsArr.length}</span></div></div>
@@ -779,25 +701,10 @@ async function renderManagerOverview() {
     </div>`).join('')
   html += `</div>`
 
-  html += `<div id="tab-unvisited" style="display:none">
-    <div class="sec-label">近半年有交易但尚未拜訪（${unvisitedCusts.length} 家）</div>
-    ${renderCustList(unvisitedCusts, '無未拜訪客戶')}
-  </div>`
-
-  html += `<div id="tab-notrade" style="display:none">
-    <div class="sec-label">超過30天未交易（${noTradeCusts.length} 家）</div>
-    ${renderCustList(noTradeCusts, '無未交易客戶')}
-  </div>`
-
-  html += `<div id="tab-decline" style="display:none">
-    <div class="sec-label">交易金額下降 &gt;30%（${prev2Period} → ${prevPeriod}）共 ${decliningCusts.length} 家</div>
-    ${renderDeclineList(decliningCusts)}
-  </div>`
-
-  html += `<div id="tab-overdue" style="display:none">
-    <div class="sec-label">久未拜訪（超過週期設定）共 ${overdueList.length} 家</div>
-    ${renderCustList(overdueList, '無逾期未拜訪客戶')}
-  </div>`
+  html += `<div id="tab-unvisited" style="display:none"><div class="sec-label">近半年有交易但尚未拜訪（${unvisitedCusts.length} 家）</div>${renderCustList(unvisitedCusts, '無未拜訪客戶')}</div>`
+  html += `<div id="tab-notrade" style="display:none"><div class="sec-label">超過30天未交易（${noTradeCusts.length} 家）</div>${renderCustList(noTradeCusts, '無未交易客戶')}</div>`
+  html += `<div id="tab-decline" style="display:none"><div class="sec-label">交易金額下降 &gt;30%（${prev2Period} → ${prevPeriod}）共 ${decliningCusts.length} 家</div>${renderDeclineList(decliningCusts)}</div>`
+  html += `<div id="tab-overdue" style="display:none"><div class="sec-label">久未拜訪（超過週期設定）共 ${overdueList.length} 家</div>${renderCustList(overdueList, '無逾期未拜訪客戶')}</div>`
 
   html += `<div id="tab-pending" style="display:none">`
   if (pendingFollowups?.length) {
@@ -839,7 +746,6 @@ async function renderManagerOverview() {
   html += `</div>`
 
   html += `<div id="tab-data" style="display:none">
-
     <div class="sec-label">銷售資料</div>
     <div class="card" style="margin-bottom:12px">
       <div class="card-top">
@@ -855,7 +761,6 @@ async function renderManagerOverview() {
       </div>
       <div id="mgr-upload-log" style="display:none;margin-top:8px;font-size:11px;color:#65655C;background:#f5f4f0;border-radius:6px;padding:8px;max-height:80px;overflow-y:auto;font-family:monospace"></div>
     </div>
-
     <div class="sec-label">配額資料</div>
     <div class="card" style="margin-bottom:12px">
       <div class="card-top">
@@ -870,13 +775,11 @@ async function renderManagerOverview() {
       </div>
       <div id="mgr-quota-log" style="display:none;margin-top:8px;font-size:11px;color:#65655C;background:#f5f4f0;border-radius:6px;padding:8px;max-height:80px;overflow-y:auto;font-family:monospace"></div>
     </div>
-
   </div>`
 
   clearTimeout(_mgrTimeout)
   c.innerHTML = html
 
-  // Tab 切換函數
   window.mgrTab = (activeId) => {
     tabs.forEach(t => {
       const el = document.getElementById(t.id)
@@ -889,7 +792,6 @@ async function renderManagerOverview() {
     })
   }
 
-  // 讀 Supabase 實際筆數（資料管理 tab）
   sb.from('sales_order').select('*',{count:'exact',head:true}).then(({count,error})=>{
     const metaEl = document.getElementById('mgr-sales-meta')
     const badgeEl = document.getElementById('mgr-sales-badge')
@@ -902,14 +804,12 @@ async function renderManagerOverview() {
       })
   })
 
-  // 讀配額狀態
   sb.from('quota').select('*',{count:'exact',head:true}).then(({count,error})=>{
     const metaEl = document.getElementById('mgr-quota-meta')
     const badgeEl = document.getElementById('mgr-quota-badge')
     if (!metaEl||!badgeEl) return
     if (error||count===null||count===0) {
-      metaEl.textContent='尚未上傳'
-      badgeEl.textContent='未上傳'; badgeEl.className='badge b-gray'
+      metaEl.textContent='尚未上傳'; badgeEl.textContent='未上傳'; badgeEl.className='badge b-gray'
     } else {
       sb.from('quota').select('period').order('period',{ascending:false}).limit(1).single()
         .then(({data:latest})=>{
@@ -920,190 +820,109 @@ async function renderManagerOverview() {
   })
 }
 
-// 管理後台上傳銷售檔
-// 管理後台上傳配額（使用跟 admin 完全相同的解析邏輯）
+// ── 上傳銷售資料（使用 upload.js，先刪後插）────────────────
+window.mgrUploadSales = async (inp) => {
+  const file = inp.files[0]; if (!file) return
+  const logEl = document.getElementById('mgr-upload-log')
+  logEl.style.display = 'block'
+  logEl.textContent = ''
+  const addLog = (msg) => { logEl.textContent += msg + '\n'; logEl.scrollTop = logEl.scrollHeight }
+  addLog('讀取 ' + file.name + '...')
+
+  if (!window.XLSX) {
+    addLog('載入 XLSX 函式庫...')
+    await new Promise(res => {
+      const s = document.createElement('script')
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'
+      s.onload = res; document.head.appendChild(s)
+    })
+  }
+
+  // 使用 upload.js 的邏輯
+  const { parseSalesWS, uploadSalesToSupabase } = await import('./upload.js')
+
+  const wb = await new Promise(res => {
+    const fr = new FileReader()
+    fr.onload = e => res(XLSX.read(e.target.result, {type:'binary', raw:false}))
+    fr.readAsBinaryString(file)
+  })
+
+  const sn = wb.SheetNames.find(n => n.includes('銷售') || n === '銷售' || n === 'SE11')
+  if (!sn) { addLog('⚠ 找不到銷售工作表'); inp.value=''; return }
+  addLog('工作表: ' + sn)
+
+  const rows = parseSalesWS(wb.Sheets[sn], XLSX)
+  if (!rows.length) { addLog('⚠ 無資料'); inp.value=''; return }
+  addLog('解析完成：' + rows.length + ' 筆')
+
+  try {
+    const result = await uploadSalesToSupabase(sb, rows, (done, total, stage, msg) => {
+      const lines = logEl.textContent.trimEnd().split('\n')
+      lines[lines.length - 1] = msg
+      logEl.textContent = lines.join('\n') + '\n'
+      logEl.scrollTop = logEl.scrollHeight
+    })
+    addLog('✅ 上傳完成：' + result.inserted + ' 筆')
+    addLog('📅 日期範圍：' + result.minDate + ' ~ ' + result.maxDate)
+    const metaEl = document.getElementById('mgr-sales-meta')
+    const badgeEl = document.getElementById('mgr-sales-badge')
+    if (metaEl) metaEl.textContent = result.inserted + ' 筆 · ' + result.minDate + ' ~ ' + result.maxDate
+    if (badgeEl) { badgeEl.textContent = '已上傳'; badgeEl.className = 'badge b-success' }
+  } catch(e) {
+    addLog('⚠ 上傳失敗：' + e.message)
+  }
+  inp.value = ''
+}
+
+window.mgrClearSales = async () => {
+  if (!confirm('確定清除 Supabase 所有銷售資料？此動作無法還原。')) return
+  const logEl = document.getElementById('mgr-upload-log')
+  logEl.style.display = 'block'
+  logEl.textContent = '清除中...\n'
+  const { error } = await sb.from('sales_order').delete().neq('id', '')
+  if (error) { logEl.textContent += '⚠ 失敗：' + error.message; return }
+  logEl.textContent += '✅ 清除完成'
+  renderManagerOverview()
+}
+
+// ── 配額上傳（不變）────────────────────────────────────────
 function parseQuotaWS(ws){
   var raw=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true});
   var hi=-1;
   for(var i=0;i<Math.min(raw.length,5);i++){if(raw[i]&&raw[i].indexOf('系列')>=0){hi=i;break;}}
   if(hi<0){log('⚠ 找不到配額標題列');return null;}
   var hdr=raw[hi];
-  var iPe=hdr.indexOf('業務負責人');
-  var iReg=hdr.indexOf('區域分類');
-  var iUpdCh=hdr.indexOf('更新_客戶分類');
-  var iMat=hdr.indexOf('材質');
-  var iCat=hdr.indexOf('分類');
-  var iSe=hdr.indexOf('系列');
+  var iPe=hdr.indexOf('業務負責人');var iReg=hdr.indexOf('區域分類');var iUpdCh=hdr.indexOf('更新_客戶分類');
+  var iMat=hdr.indexOf('材質');var iCat=hdr.indexOf('分類');var iSe=hdr.indexOf('系列');
   var mCols=[];
   hdr.forEach(function(v,ci){var n=parseFloat(v);if(n>=11501&&n<=11512)mCols.push({ci:ci,mo:String(Math.round(n)%100)});});
-  log('配額欄位 pe='+iPe+' reg='+iReg+' updCh='+iUpdCh+' se='+iSe+' mCols='+mCols.length);
-
-  // QUOTA[person][region][updCh] = { qh, qf, qtotal }
-  // person='全通路' for global; updCh='' means whole region
-  var OUT={};
-  var curPe='';
-
-  function getOrCreate(pe,reg,ch){
-    if(!OUT[pe])OUT[pe]={};
-    if(!OUT[pe][reg])OUT[pe][reg]={};
-    if(!OUT[pe][reg][ch])OUT[pe][reg][ch]={qh:{},qf:{},qtotal:{}};
-    return OUT[pe][reg][ch];
-  }
+  var OUT={};var curPe='';
+  function getOrCreate(pe,reg,ch){if(!OUT[pe])OUT[pe]={};if(!OUT[pe][reg])OUT[pe][reg]={};if(!OUT[pe][reg][ch])OUT[pe][reg][ch]={qh:{},qf:{},qtotal:{}};return OUT[pe][reg][ch];}
   function addDetail(pe,reg,ch,se,ca,ma,monthly){
     var o=getOrCreate(pe,reg,ch);
-    if(!o.qh[se])o.qh[se]={};
-    if(!o.qh[se][ca])o.qh[se][ca]={mo:{},mats:{}};
-    mCols.forEach(function(mc){
-      o.qh[se][ca].mo[mc.mo]=(o.qh[se][ca].mo[mc.mo]||0)+monthly[mc.mo];
-      if(!o.qf[se])o.qf[se]={};
-      o.qf[se][mc.mo]=(o.qf[se][mc.mo]||0)+monthly[mc.mo];
-    });
-    if(ma&&!/^(total|TOTAL|Total)$/i.test(ma)){
-      if(!o.qh[se][ca].mats[ma])o.qh[se][ca].mats[ma]={};
-      mCols.forEach(function(mc){o.qh[se][ca].mats[ma][mc.mo]=(o.qh[se][ca].mats[ma][mc.mo]||0)+monthly[mc.mo];});
-    }
+    if(!o.qh[se])o.qh[se]={};if(!o.qh[se][ca])o.qh[se][ca]={mo:{},mats:{}};
+    mCols.forEach(function(mc){o.qh[se][ca].mo[mc.mo]=(o.qh[se][ca].mo[mc.mo]||0)+monthly[mc.mo];if(!o.qf[se])o.qf[se]={};o.qf[se][mc.mo]=(o.qf[se][mc.mo]||0)+monthly[mc.mo];});
+    if(ma&&!/^(total|TOTAL|Total)$/i.test(ma)){if(!o.qh[se][ca].mats[ma])o.qh[se][ca].mats[ma]={};mCols.forEach(function(mc){o.qh[se][ca].mats[ma][mc.mo]=(o.qh[se][ca].mats[ma][mc.mo]||0)+monthly[mc.mo];});}
   }
-
   for(var ri=hi+1;ri<raw.length;ri++){
     var row=raw[ri];if(!row)continue;
     if(row[iPe]&&String(row[iPe]).trim())curPe=String(row[iPe]).trim();
-    var reg=row[iReg]?String(row[iReg]).trim():'';
-    var updCh=row[iUpdCh]?String(row[iUpdCh]).trim():'';
-    var se=row[iSe]?String(row[iSe]).trim():'';
-    var ca=row[iCat]?String(row[iCat]).trim():'';
-    var ma=row[iMat]?String(row[iMat]).trim():'';
-    var monthly={};
-    mCols.forEach(function(mc){monthly[mc.mo]=parseFloat(row[mc.ci])||0;});
+    var reg=row[iReg]?String(row[iReg]).trim():'';var updCh=row[iUpdCh]?String(row[iUpdCh]).trim():'';
+    var se=row[iSe]?String(row[iSe]).trim():'';var ca=row[iCat]?String(row[iCat]).trim():'';var ma=row[iMat]?String(row[iMat]).trim():'';
+    var monthly={};mCols.forEach(function(mc){monthly[mc.mo]=parseFloat(row[mc.ci])||0;});
     var isTot=/^(total|TOTAL|Total)$/i.test(se)||/^(total|TOTAL|Total)$/i.test(ca);
-
-    if(reg==='全通路'){
-      if(isTot)continue;
-      addDetail('全通路','_','',se,ca,ma,monthly);
-    } else if(curPe){
-      if(isTot){
-        var o=getOrCreate(curPe,reg,updCh);
-        mCols.forEach(function(mc){o.qtotal[mc.mo]=(o.qtotal[mc.mo]||0)+monthly[mc.mo];});
-      } else {
-        if(!se||!ca)continue;
-        addDetail(curPe,reg,updCh,se,ca,ma,monthly);
-      }
-    }
+    if(reg==='全通路'){if(isTot)continue;addDetail('全通路','_','',se,ca,ma,monthly);}
+    else if(curPe){if(isTot){var o=getOrCreate(curPe,reg,updCh);mCols.forEach(function(mc){o.qtotal[mc.mo]=(o.qtotal[mc.mo]||0)+monthly[mc.mo];});}else{if(!se||!ca)continue;addDetail(curPe,reg,updCh,se,ca,ma,monthly);}}
   }
-  // Build 全區 aggregates: for each person, sum all regions into a '_ALL' key
   Object.keys(OUT).filter(function(pe){return pe!=='全通路';}).forEach(function(pe){
     OUT[pe]['_ALL']={};
-    Object.keys(OUT[pe]).forEach(function(reg){
-      if(reg==='_ALL')return;
-      Object.keys(OUT[pe][reg]).forEach(function(ch){
-        if(!OUT[pe]['_ALL'][ch])OUT[pe]['_ALL'][ch]={qh:{},qf:{},qtotal:{}};
-        var src=OUT[pe][reg][ch], dst=OUT[pe]['_ALL'][ch];
-        // merge qtotal
-        Object.keys(src.qtotal).forEach(function(m){dst.qtotal[m]=(dst.qtotal[m]||0)+src.qtotal[m];});
-        // merge qf
-        Object.keys(src.qf).forEach(function(se){
-          if(!dst.qf[se])dst.qf[se]={};
-          Object.keys(src.qf[se]).forEach(function(m){dst.qf[se][m]=(dst.qf[se][m]||0)+src.qf[se][m];});
-        });
-        // merge qh
-        Object.keys(src.qh).forEach(function(se){
-          if(!dst.qh[se])dst.qh[se]={};
-          Object.keys(src.qh[se]).forEach(function(ca){
-            if(!dst.qh[se][ca])dst.qh[se][ca]={mo:{},mats:{}};
-            Object.keys(src.qh[se][ca].mo||{}).forEach(function(m){
-              dst.qh[se][ca].mo[m]=(dst.qh[se][ca].mo[m]||0)+src.qh[se][ca].mo[m];
-            });
-          });
-        });
-      });
-    });
+    Object.keys(OUT[pe]).forEach(function(reg){if(reg==='_ALL')return;Object.keys(OUT[pe][reg]).forEach(function(ch){if(!OUT[pe]['_ALL'][ch])OUT[pe]['_ALL'][ch]={qh:{},qf:{},qtotal:{}};var src=OUT[pe][reg][ch],dst=OUT[pe]['_ALL'][ch];Object.keys(src.qtotal).forEach(function(m){dst.qtotal[m]=(dst.qtotal[m]||0)+src.qtotal[m];});Object.keys(src.qf).forEach(function(se){if(!dst.qf[se])dst.qf[se]={};Object.keys(src.qf[se]).forEach(function(m){dst.qf[se][m]=(dst.qf[se][m]||0)+src.qf[se][m];});});Object.keys(src.qh).forEach(function(se){if(!dst.qh[se])dst.qh[se]={};Object.keys(src.qh[se]).forEach(function(ca){if(!dst.qh[se][ca])dst.qh[se][ca]={mo:{},mats:{}};Object.keys(src.qh[se][ca].mo||{}).forEach(function(m){dst.qh[se][ca].mo[m]=(dst.qh[se][ca].mo[m]||0)+src.qh[se][ca].mo[m];});});});});});
   });
-  // ── Detect and remove summary rows ──────────────────
-  // A ch='' row is a summary if its total ≈ sum of ch!='' rows of same pe (intra-pe)
-  // OR ≈ sum of one ch='' row per other pe (cross-pe, e.g. 網路全區)
-  var EPS=0.002;
-  var allPeKeys=Object.keys(OUT).filter(function(k){return k!=='全通路';});
-
+  var EPS=0.002;var allPeKeys=Object.keys(OUT).filter(function(k){return k!=='全通路';});
   function rowQTotal(o){return Object.values(o.qtotal||{}).reduce(function(s,v){return s+v;},0);}
-
-  // Collect all ch='' rows per pe for cross-pe check
   var peCHEmptyRows={};
-  allPeKeys.forEach(function(pe){
-    peCHEmptyRows[pe]=[];
-    Object.keys(OUT[pe]).forEach(function(reg){
-      if(reg==='_ALL')return;
-      if(OUT[pe][reg]['']){
-        var t=rowQTotal(OUT[pe][reg]['']);
-        if(t>0)peCHEmptyRows[pe].push({reg:reg,q:t,qtotal:OUT[pe][reg][''].qtotal||{}});
-      }
-    });
-  });
-
-  allPeKeys.forEach(function(pe){
-    Object.keys(OUT[pe]).forEach(function(reg){
-      if(reg==='_ALL')return;
-      if(!OUT[pe][reg][''])return; // only check ch='' rows
-      var q=rowQTotal(OUT[pe][reg]['']);
-      if(q===0){delete OUT[pe][reg][''];return;}
-      var skip=false;
-
-      // Rule 1: intra-pe – ≈ sum of ch!='' rows of same pe
-      var sameChTotal=0;
-      Object.keys(OUT[pe]).forEach(function(reg2){
-        if(reg2==='_ALL')return;
-        Object.keys(OUT[pe][reg2]).forEach(function(ch2){
-          if(ch2!=='')sameChTotal+=rowQTotal(OUT[pe][reg2][ch2]);
-        });
-      });
-      if(sameChTotal>0&&Math.abs(q-sameChTotal)/Math.max(q,1)<EPS){skip=true;log('彙總(intra):'+pe+'/'+reg);}
-
-      // Rule 1b: intra-pe – ≈ sum of ch!='' rows sharing same reg prefix (3 chars)
-      if(!skip){
-        var prefix=reg.substring(0,3);
-        var relatedTotal=0,relatedCount=0;
-        Object.keys(OUT[pe]).forEach(function(reg2){
-          if(reg2==='_ALL')return;
-          Object.keys(OUT[pe][reg2]).forEach(function(ch2){
-            if(ch2!==''&&reg2.substring(0,3)===prefix){relatedTotal+=rowQTotal(OUT[pe][reg2][ch2]);relatedCount++;}
-          });
-        });
-        if(relatedCount>0&&relatedTotal>0&&Math.abs(q-relatedTotal)/Math.max(q,1)<EPS){skip=true;log('彙總(intra-reg):'+pe+'/'+reg);}
-      }
-
-      // Rule 2: cross-pe – month-by-month check (all 12 months must match)
-      // This prevents false positives from coincidental annual total matches
-      if(!skip){
-        var otherPes=allPeKeys.filter(function(p){return p!==pe;});
-        var otherRows=[];
-        otherPes.forEach(function(p){peCHEmptyRows[p].forEach(function(r){otherRows.push({pe:p,reg:r.reg,qtotal:r.qtotal,pe:p});});});
-        var thisQtotal=OUT[pe][reg][''].qtotal||{};
-        var allMos=Object.keys(thisQtotal);
-        function tryCombosMonthly(rows, idx, usedPes, moSums){
-          // Check if current moSums matches thisQtotal for all months
-          var matches=allMos.every(function(m){
-            var diff=Math.abs((thisQtotal[m]||0)-(moSums[m]||0));
-            return diff<1||(thisQtotal[m]>0&&diff/thisQtotal[m]<EPS);
-          });
-          if(matches&&Object.keys(moSums).length>0)return true;
-          if(idx>=rows.length)return false;
-          var r=rows[idx];
-          if(r['pe']!==pe&&usedPes.indexOf(r['pe'])<0){
-            var newSums={};
-            allMos.forEach(function(m){newSums[m]=(moSums[m]||0)+(r.qtotal[m]||0);});
-            if(tryCombosMonthly(rows,idx+1,usedPes.concat([r['pe']]),newSums))return true;
-          }
-          return tryCombosMonthly(rows,idx+1,usedPes,moSums);
-        }
-        if(tryCombosMonthly(otherRows,0,[],{})){skip=true;log('彙總(cross-pe):'+pe+'/'+reg);}
-      }
-
-      if(skip){
-        delete OUT[pe][reg][''];
-        if(Object.keys(OUT[pe][reg]).length===0)delete OUT[pe][reg];
-      }
-    });
-  });
-
-  log('配額解析完成 people='+allPeKeys.join(','));
+  allPeKeys.forEach(function(pe){peCHEmptyRows[pe]=[];Object.keys(OUT[pe]).forEach(function(reg){if(reg==='_ALL')return;if(OUT[pe][reg]['']){var t=rowQTotal(OUT[pe][reg]['']);if(t>0)peCHEmptyRows[pe].push({reg:reg,q:t,qtotal:OUT[pe][reg][''].qtotal||{}});}});});
+  allPeKeys.forEach(function(pe){Object.keys(OUT[pe]).forEach(function(reg){if(reg==='_ALL')return;if(!OUT[pe][reg][''])return;var q=rowQTotal(OUT[pe][reg]['']);if(q===0){delete OUT[pe][reg][''];return;}var skip=false;var sameChTotal=0;Object.keys(OUT[pe]).forEach(function(reg2){if(reg2==='_ALL')return;Object.keys(OUT[pe][reg2]).forEach(function(ch2){if(ch2!=='')sameChTotal+=rowQTotal(OUT[pe][reg2][ch2]);});});if(sameChTotal>0&&Math.abs(q-sameChTotal)/Math.max(q,1)<EPS){skip=true;}if(!skip){var prefix=reg.substring(0,3);var relatedTotal=0,relatedCount=0;Object.keys(OUT[pe]).forEach(function(reg2){if(reg2==='_ALL')return;Object.keys(OUT[pe][reg2]).forEach(function(ch2){if(ch2!==''&&reg2.substring(0,3)===prefix){relatedTotal+=rowQTotal(OUT[pe][reg2][ch2]);relatedCount++;}});});if(relatedCount>0&&relatedTotal>0&&Math.abs(q-relatedTotal)/Math.max(q,1)<EPS){skip=true;}}if(!skip){var otherPes=allPeKeys.filter(function(p){return p!==pe;});var otherRows=[];otherPes.forEach(function(p){peCHEmptyRows[p].forEach(function(r){otherRows.push({pe:p,reg:r.reg,qtotal:r.qtotal,pe:p});});});var thisQtotal=OUT[pe][reg][''].qtotal||{};var allMos=Object.keys(thisQtotal);function tryCombosMonthly(rows,idx,usedPes,moSums){var matches=allMos.every(function(m){var diff=Math.abs((thisQtotal[m]||0)-(moSums[m]||0));return diff<1||(thisQtotal[m]>0&&diff/thisQtotal[m]<EPS);});if(matches&&Object.keys(moSums).length>0)return true;if(idx>=rows.length)return false;var r=rows[idx];if(r['pe']!==pe&&usedPes.indexOf(r['pe'])<0){var newSums={};allMos.forEach(function(m){newSums[m]=(moSums[m]||0)+(r.qtotal[m]||0);});if(tryCombosMonthly(rows,idx+1,usedPes.concat([r['pe']]),newSums))return true;}return tryCombosMonthly(rows,idx+1,usedPes,moSums);}if(tryCombosMonthly(otherRows,0,[],{})){skip=true;}}if(skip){delete OUT[pe][reg][''];if(Object.keys(OUT[pe][reg]).length===0)delete OUT[pe][reg];}});});
   return OUT;
 }
 
@@ -1113,72 +932,33 @@ window.mgrUploadQuota = async (inp) => {
   logEl.style.display = 'block'
   const addLog = (msg) => { logEl.textContent += msg + '\n'; logEl.scrollTop = logEl.scrollHeight }
   addLog('讀取 ' + file.name + '...')
-
-  // 動態載入 XLSX
   if (!window.XLSX) {
     addLog('載入 XLSX 函式庫...')
-    await new Promise(res => {
-      const s = document.createElement('script')
-      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'
-      s.onload = res; document.head.appendChild(s)
-    })
+    await new Promise(res => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; s.onload = res; document.head.appendChild(s) })
   }
-
-  const wb = await new Promise(res => {
-    const fr = new FileReader()
-    fr.onload = e => res(XLSX.read(e.target.result, {type:'binary', raw:true}))
-    fr.readAsBinaryString(file)
-  })
-
-  // 找配額工作表
-  const qn = wb.SheetNames.find(n => n==='Y2026配額'||n==='2026配額')
-    || wb.SheetNames.find(n => /^Y?\d{4}配額$/.test(n))
-    || wb.SheetNames.find(n => n.includes('配額') && !n.includes('暫掛') && !n.includes('原始'))
+  const wb = await new Promise(res => { const fr = new FileReader(); fr.onload = e => res(XLSX.read(e.target.result, {type:'binary', raw:true})); fr.readAsBinaryString(file) })
+  const qn = wb.SheetNames.find(n => n==='Y2026配額'||n==='2026配額') || wb.SheetNames.find(n => /^Y?\d{4}配額$/.test(n)) || wb.SheetNames.find(n => n.includes('配額') && !n.includes('暫掛') && !n.includes('原始'))
   if (!qn) { addLog('⚠ 找不到配額工作表'); inp.value=''; return }
   addLog('工作表: ' + qn)
-
-  // 用完整的 parseQuotaWS 解析（跟 admin 完全相同）
-  // 暫時讓 parseQuotaWS 的 log 輸出到 quota log
-  const _origLog = window.log
-  window.log = addLog
+  const _origLog = window.log; window.log = addLog
   const quotaData = parseQuotaWS(wb.Sheets[qn])
   window.log = _origLog
   if (!quotaData) { addLog('⚠ 配額解析失敗'); inp.value=''; return }
-
   const peNames = Object.keys(quotaData).filter(pe => pe !== '全通路')
   addLog('找到業務: ' + peNames.join('、'))
-
-  // 取 sales_rep 對照
   const { data: reps } = await sb.from('sales_rep').select('id,name').in('name', peNames)
-  const repMap = {}
-  ;(reps||[]).forEach(r => { repMap[r.name] = r.id })
-
-  // 從 _ALL 取每月配額（跟儀表板邏輯一致）
+  const repMap = {}; (reps||[]).forEach(r => { repMap[r.name] = r.id })
   const year = new Date().getFullYear()
   const rows = []
   peNames.forEach(pe => {
     const repId = repMap[pe]
     if (!repId) { addLog('⚠ 找不到業務 ' + pe + ' 的帳號，略過'); return }
-    // 直接從各 reg 的 qtotal 加總（最準確，跟儀表板 getBaseQ 邏輯一致）
-    // 不用 _ALL，避免 ch 彙整邏輯差異
-    const monthly = {}
-    Object.keys(quotaData[pe]).filter(reg => reg !== '_ALL').forEach(reg => {
-      Object.keys(quotaData[pe][reg]).forEach(ch => {
-        const qt = quotaData[pe][reg][ch].qtotal || {}
-        Object.keys(qt).forEach(mo => { monthly[mo] = (monthly[mo]||0) + qt[mo] })
-      })
-    })
-    // 去重複：如果有空字串 ch 跟非空字串 ch 都存在，空字串是加總，不能再加
-    // 所以：如果某個 reg 下有非空字串 ch，就減去空字串 ch 的部分
     const monthly2 = {}
     Object.keys(quotaData[pe]).filter(reg => reg !== '_ALL').forEach(reg => {
       const chs = Object.keys(quotaData[pe][reg])
       const hasNonEmpty = chs.some(ch => ch !== '')
       const chsToUse = hasNonEmpty ? chs.filter(ch => ch !== '') : chs
-      chsToUse.forEach(ch => {
-        const qt = quotaData[pe][reg][ch].qtotal || {}
-        Object.keys(qt).forEach(mo => { monthly2[mo] = (monthly2[mo]||0) + qt[mo] })
-      })
+      chsToUse.forEach(ch => { const qt = quotaData[pe][reg][ch].qtotal || {}; Object.keys(qt).forEach(mo => { monthly2[mo] = (monthly2[mo]||0) + qt[mo] }) })
     })
     Object.entries(monthly2).forEach(([mo, amt]) => {
       const moNum = parseInt(mo)
@@ -1186,11 +966,8 @@ window.mgrUploadQuota = async (inp) => {
       rows.push({ rep_id: repId, period: year+'-'+String(moNum).padStart(2,'0'), amount_target: Math.round(amt), visit_target: 0 })
     })
   })
-
   if (!rows.length) { addLog('⚠ 無配額資料'); inp.value=''; return }
   addLog('準備寫入 ' + rows.length + ' 筆...')
-
-  // Upsert
   let done = 0, errors = 0
   for (let i = 0; i < rows.length; i += 50) {
     const batch = rows.slice(i, i+50)
@@ -1198,109 +975,15 @@ window.mgrUploadQuota = async (inp) => {
     if (error) { errors += batch.length; addLog('⚠ ' + error.message.slice(0,80)) }
     else done += batch.length
   }
-
   if (errors === 0) {
     addLog('✅ 配額上傳完成：' + done + ' 筆')
     document.getElementById('mgr-quota-meta').textContent = done + ' 筆 · 剛才上傳'
     document.getElementById('mgr-quota-badge').textContent = '已上傳'
     document.getElementById('mgr-quota-badge').className = 'badge b-success'
-  } else {
-    addLog('⚠ 部分失敗：成功' + done + '，失敗' + errors)
-  }
+  } else { addLog('⚠ 部分失敗：成功' + done + '，失敗' + errors) }
   inp.value = ''
 }
 
-window.mgrUploadSales = async (inp) => {
-  const file = inp.files[0]; if (!file) return
-  const logEl = document.getElementById('mgr-upload-log')
-  logEl.style.display = 'block'
-  const addLog = (msg) => { logEl.textContent += msg + '\n'; logEl.scrollTop = logEl.scrollHeight }
-  addLog('讀取 ' + file.name + '...')
-
-  // 動態載入 XLSX（CRM 沒有預載）
-  if (!window.XLSX) {
-    addLog('載入 XLSX 函式庫...')
-    await new Promise(res => {
-      const s = document.createElement('script')
-      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'
-      s.onload = res; document.head.appendChild(s)
-    })
-  }
-
-  const parsed = await new Promise(res => {
-    const fr = new FileReader()
-    fr.onload = e => {
-      const wb = XLSX.read(e.target.result, {type:'binary',raw:false})
-      const sn = wb.SheetNames.find(n => n.includes('銷售') || n==='銷售')
-      if (!sn) { addLog('⚠ 找不到銷售工作表'); res([]); return }
-      const data = XLSX.utils.sheet_to_json(wb.Sheets[sn], {defval:null,raw:false})
-      res(data)
-    }
-    fr.readAsBinaryString(file)
-  })
-
-  if (!parsed.length) { addLog('⚠ 無資料'); inp.value=''; return }
-  addLog('解析完成：' + parsed.length + ' 筆，上傳中...')
-
-  // 簡單 mapping（欄位對應 sales_order）
-  const CH_REMAP = {'嬰兒房':'嬰藥','藥局':'嬰藥','藥局/嬰兒房':'嬰藥','機關福利社':'嬰藥','安養院':'安養&醫材','醫院':'安養&醫材','醫院/安養院':'安養&醫材','醫療器材行':'安養&醫材','盤商':'盤商(經銷商)','經銷商':'盤商(經銷商)'}
-  const seenCtr = {}
-  const rows = parsed.map(r => {
-    const dateStr = String(r['日期']||'').trim()
-    const parts = dateStr.split('/')
-    if (parts.length!==3) return null
-    const y=parseInt(parts[0])+1911, mo=parseInt(parts[1]), day=parseInt(parts[2])
-    const t = String(r['單別']||'').trim()
-    const orderNo = String(r['出貨單號']||'').trim()
-    let seq
-    if (r['序號']!=null&&r['序號']!=='') seq=String(Math.round(parseFloat(r['序號'])||0))
-    else { const ck=t+'_'+orderNo; seenCtr[ck]=(seenCtr[ck]||0)+1; seq=String(seenCtr[ck]) }
-    const rawCh = String(r['客戶分類']||'').trim()
-    const rawReg = String(r['區域分類']||'').trim()
-    const ch = CH_REMAP[rawCh]||(rawCh.includes('網')||rawCh.includes('電商')?'網路':rawCh)
-    const PE_MAP = {'網路通路-1區':'雅蘋','網路通路-2區':'張蓒'}
-    const pe = PE_MAP[rawReg]||String(r['業務姓名']||'').trim()
-    return {
-      id: t+'_'+orderNo+'_'+seq, order_type:t,
-      year:y, month:mo, day:day,
-      order_date: y+'-'+String(mo).padStart(2,'0')+'-'+String(day).padStart(2,'0'),
-      sales_rep:pe, amount:parseFloat(String(r['未稅金額']||'0').replace(/,/g,''))||0,
-      series:String(r['系列']||'').trim(), category:String(r['分類']||'').trim(),
-      material:String(r['材質']||'').trim(), raw_material:String(r['材質']||'').trim(),
-      channel:ch, raw_channel:rawCh, region:rawReg,
-      quantity:parseFloat(String(r['數量']||'0').replace(/,/g,''))||0,
-      customer_name:String(r['客戶全稱']||'').trim()||null
-    }
-  }).filter(Boolean)
-
-  // 分批 upsert
-  const CHUNK=200; let done=0, errors=0
-  for (let i=0; i<rows.length; i+=CHUNK) {
-    const batch = rows.slice(i,i+CHUNK)
-    const { error } = await sb.from('sales_order').upsert(batch, {onConflict:'id'})
-    if (error) { errors+=batch.length; addLog('⚠ 批次'+(i)+': '+error.message.slice(0,80)) }
-    else done+=batch.length
-    document.getElementById('mgr-upload-log').textContent = document.getElementById('mgr-upload-log').textContent.replace(/上傳中.*/, '上傳中... '+done+'/'+rows.length)
-  }
-
-  addLog(errors===0 ? '✅ 上傳完成：'+done+' 筆' : '⚠ 完成：成功'+done+'，失敗'+errors)
-  try {
-    const sm = JSON.parse(localStorage.getItem('sd_smeta')||'{}')
-    sm[file.name] = {rows:done, date:new Date().toLocaleDateString('zh-TW')}
-    localStorage.setItem('sd_smeta', JSON.stringify(sm))
-    localStorage.removeItem('sd_sb_date')
-  } catch(e) {}
-  inp.value=''
-  renderManagerOverview()
-}
-
-window.mgrClearSales = () => {
-  if (!confirm('確定清除本機銷售快取？（Supabase 資料不受影響）')) return
-  localStorage.removeItem('sd_sales')
-  localStorage.removeItem('sd_smeta')
-  localStorage.removeItem('sd_sb_date')
-  renderManagerOverview()
-}
 window.approveAddr = async (id) => {
   const { data: log } = await sb.from('address_change_log').select('*').eq('id',id).single()
   if (!log) return
@@ -1316,10 +999,9 @@ window.rejectAddr = async (id) => {
   renderManagerOverview()
 }
 
-let _visitCustomers = []  // 快取客戶清單
+let _visitCustomers = []
 window.openVisitModal = async () => {
   document.getElementById('modal-visit').classList.add('open')
-  // 重設欄位
   document.getElementById('visit-customer-search').value = ''
   document.getElementById('visit-customer-id').value = ''
   document.getElementById('selected-customer').style.display = 'none'
@@ -1327,24 +1009,17 @@ window.openVisitModal = async () => {
   document.getElementById('customer-dropdown').style.display = 'none'
   document.getElementById('visit-amount').value = ''
   document.getElementById('visit-notes').value = ''
-
-  // 載入客戶清單（用自己負責的）
   if (!_visitCustomers.length) {
     const q = sb.from('customer').select('id,name,type,grade,region').eq('is_active',true).order('grade').order('name')
     const filtered = currentRep ? q.eq('assigned_rep_id', currentRep.id) : q
     const { data } = await filtered
     _visitCustomers = data || []
   }
-
-  // 點搜尋框時顯示區域→ABC 結構
   const searchEl = document.getElementById('visit-customer-search')
-  // 移除舊事件，重新綁定
   const newEl = searchEl.cloneNode(true)
   searchEl.parentNode.replaceChild(newEl, searchEl)
   newEl.addEventListener('focus', () => searchCustomers(''))
   newEl.addEventListener('input', (e) => searchCustomers(e.target.value))
-
-  // 綁定 pill 選擇
   document.querySelectorAll('#visit-result-pills .pill').forEach(p => {
     p.onclick = () => {
       document.querySelectorAll('#visit-result-pills .pill').forEach(x=>x.classList.remove('selected'))
@@ -1359,10 +1034,8 @@ window.openVisitModal = async () => {
 window.searchCustomers = (kw) => {
   const dd = document.getElementById('customer-dropdown')
   const kl = kw.trim().toLowerCase()
-
   if (!kl) {
     if (!_visitCustomers.length) { dd.style.display='none'; return }
-    // 依 region（區域編號）分組 → ABC
     const regionMap = {}
     _visitCustomers.forEach(c => {
       const reg = c.region || c.type || '未分類'
@@ -1382,9 +1055,7 @@ window.searchCustomers = (kw) => {
         html += `<div style="padding:3px 12px 1px 16px;font-size:10px;color:#aaa;background:#fafafa">${grade==='其他'?'未分級':grade+' 級'}（${list.length}）</div>`
         list.forEach(c => {
           const safeName = c.name.replace(/'/g,"\'")
-          html += `<div class="dropdown-item" style="padding:8px 12px 8px 24px" onclick="selectCustomer('${c.id}','${safeName}')">
-            ${c.name}<span style="font-size:10px;color:#999;margin-left:6px">${c.grade||''}</span>
-          </div>`
+          html += `<div class="dropdown-item" style="padding:8px 12px 8px 24px" onclick="selectCustomer('${c.id}','${safeName}')">${c.name}<span style="font-size:10px;color:#999;margin-left:6px">${c.grade||''}</span></div>`
         })
       })
     })
@@ -1392,18 +1063,15 @@ window.searchCustomers = (kw) => {
     dd.style.display = 'block'
     return
   }
-
-  // 有關鍵字直接搜尋
   const hits = _visitCustomers.filter(c => c.name.toLowerCase().includes(kl)).slice(0,20)
   if (!hits.length) { dd.style.display='none'; return }
   dd.innerHTML = hits.map(c => {
     const safeName = c.name.replace(/'/g,"\'")
-    return `<div class="dropdown-item" onclick="selectCustomer('${c.id}','${safeName}')">
-      ${c.name}<span style="font-size:10px;color:#999;margin-left:6px">${c.region||''} ${c.grade||''}</span>
-    </div>`
+    return `<div class="dropdown-item" onclick="selectCustomer('${c.id}','${safeName}')">${c.name}<span style="font-size:10px;color:#999;margin-left:6px">${c.region||''} ${c.grade||''}</span></div>`
   }).join('')
   dd.style.display = 'block'
 }
+
 window.selectCustomer = (id, name) => {
   document.getElementById('visit-customer-id').value = id
   document.getElementById('visit-customer-search').value = ''
@@ -1424,15 +1092,8 @@ window.submitVisit = async () => {
   const customerIdVal = document.getElementById('visit-customer-id').value
   const amount = parseInt(document.getElementById('visit-amount').value)||0
   const notes = document.getElementById('visit-notes').value.trim()
-
-  // 編輯模式
   if (_editVisitId) {
-    const { error } = await sb.from('visit_log').update({
-      result: visitResult,
-      amount: visitResult==='成交'?amount:0,
-      notes: notes||null,
-      follow_up_status: visitResult==='待跟進'?'pending':'none'
-    }).eq('id', _editVisitId)
+    const { error } = await sb.from('visit_log').update({ result: visitResult, amount: visitResult==='成交'?amount:0, notes: notes||null, follow_up_status: visitResult==='待跟進'?'pending':'none' }).eq('id', _editVisitId)
     if (error) { alert('更新失敗：'+error.message); return }
     _editVisitId = null
     document.getElementById('modal-visit').classList.remove('open')
@@ -1441,52 +1102,30 @@ window.submitVisit = async () => {
     renderToday()
     return
   }
-
-  // 新增模式
   if (!todayRoute || !customerIdVal || customerIdVal === 'EDIT') return
-
   const { data: existing } = await sb.from('visit_log').select('id').eq('route_id',todayRoute.id)
   const order = (existing?.length||0) + 1
-
-  const { error } = await sb.from('visit_log').insert({
-    route_id: todayRoute.id, customer_id: customerIdVal,
-    visit_order: order, result: visitResult,
-    amount: visitResult==='成交'?amount:0,
-    notes: notes||null,
-    follow_up_status: visitResult==='待跟進'?'pending':'none',
-    visited_at: new Date().toISOString()
-  })
-
+  const { error } = await sb.from('visit_log').insert({ route_id: todayRoute.id, customer_id: customerIdVal, visit_order: order, result: visitResult, amount: visitResult==='成交'?amount:0, notes: notes||null, follow_up_status: visitResult==='待跟進'?'pending':'none', visited_at: new Date().toISOString() })
   if (error) { alert('儲存失敗：'+error.message); return }
-
   document.getElementById('modal-visit').classList.remove('open')
   document.getElementById('visit-amount').value = ''
   document.getElementById('visit-notes').value = ''
   renderToday()
 }
 
-// ── 編輯拜訪記錄 ──
 let _editVisitId = null
-
 window.openEditVisitModal = (id, custName, result, amount, notes) => {
   _editVisitId = id
-  // 重用 visit modal，改標題
   document.getElementById('modal-visit').classList.add('open')
-  // 填入現有資料
   document.getElementById('visit-customer-search').value = ''
-  document.getElementById('visit-customer-id').value = 'EDIT' // 標記為編輯模式
+  document.getElementById('visit-customer-id').value = 'EDIT'
   const selEl = document.getElementById('selected-customer')
-  selEl.textContent = custName
-  selEl.style.display = 'block'
+  selEl.textContent = custName; selEl.style.display = 'block'
   document.getElementById('visit-amount').value = amount || ''
   document.getElementById('visit-notes').value = notes || ''
-  // 選對應的結果 pill
   document.querySelectorAll('#visit-result-pills .pill').forEach(p => {
     p.classList.toggle('selected', p.dataset.val === result)
-    if (p.dataset.val === result) {
-      visitResult = result
-      document.getElementById('amount-group').style.display = result==='成交' ? '' : 'none'
-    }
+    if (p.dataset.val === result) { visitResult = result; document.getElementById('amount-group').style.display = result==='成交' ? '' : 'none' }
   })
 }
 
@@ -1497,15 +1136,12 @@ window.deleteVisit = async (id) => {
   renderToday()
 }
 
-// ── 里程計算 ──
-// 動態載入 Google Maps JS SDK
 function loadGMaps() {
   return new Promise(res => {
     if (window.google?.maps) { res(); return }
     const s = document.createElement('script')
     s.src = `https://maps.googleapis.com/maps/api/js?key=${GMAPS_KEY}&libraries=geometry`
-    s.onload = res
-    document.head.appendChild(s)
+    s.onload = res; document.head.appendChild(s)
   })
 }
 
@@ -1520,12 +1156,7 @@ function geocodeAddr(geocoder, address) {
 
 function calcRoute(svc, origin, destination, waypoints) {
   return new Promise((res, rej) => {
-    svc.route({
-      origin, destination,
-      waypoints: waypoints.map(w => ({ location: w, stopover: true })),
-      optimizeWaypoints: true,
-      travelMode: google.maps.TravelMode.DRIVING
-    }, (result, status) => {
+    svc.route({ origin, destination, waypoints: waypoints.map(w => ({ location: w, stopover: true })), optimizeWaypoints: true, travelMode: google.maps.TravelMode.DRIVING }, (result, status) => {
       if (status === 'OK') res(result)
       else rej(new Error('Directions failed: ' + status))
     })
@@ -1535,142 +1166,51 @@ function calcRoute(svc, origin, destination, waypoints) {
 window.calcKm = async () => {
   if (!todayRoute || !currentRep) return
   const btn = document.getElementById('calc-km-btn')
-  btn.textContent = '計算中...'
-  btn.disabled = true
-
+  btn.textContent = '計算中...'; btn.disabled = true
   try {
     await loadGMaps()
-
-    // 拉今日拜訪的客戶地址
-    const { data: visits } = await sb.from('visit_log')
-      .select('visit_order, customer(id,name,actual_address,erp_address)')
-      .eq('route_id', todayRoute.id).order('visit_order')
-
-    if (!visits?.length) {
-      alert('今日尚無拜訪記錄，無法計算里程')
-      btn.textContent = '計算今日里程'; btn.disabled = false; return
-    }
-
-    // 取業務家裡地址
-    const { data: repData } = await sb.from('sales_rep')
-      .select('home_address').eq('id', currentRep.id).single()
+    const { data: visits } = await sb.from('visit_log').select('visit_order, customer(id,name,actual_address,erp_address)').eq('route_id', todayRoute.id).order('visit_order')
+    if (!visits?.length) { alert('今日尚無拜訪記錄，無法計算里程'); btn.textContent = '計算今日里程'; btn.disabled = false; return }
+    const { data: repData } = await sb.from('sales_rep').select('home_address').eq('id', currentRep.id).single()
     const homeAddr = repData?.home_address
-    if (!homeAddr) {
-      alert('業務家裡地址未設定，請聯繫管理者')
-      btn.textContent = '計算今日里程'; btn.disabled = false; return
-    }
-
+    if (!homeAddr) { alert('業務家裡地址未設定，請聯繫管理者'); btn.textContent = '計算今日里程'; btn.disabled = false; return }
     const geocoder = new google.maps.Geocoder()
     const dirSvc = new google.maps.DirectionsService()
-
-    // Geocode 起點、終點、途徑點
     const originLatLng = await geocodeAddr(geocoder, COMPANY_ADDRESS)
     const destLatLng = await geocodeAddr(geocoder, homeAddr)
-
     const waypointLatLngs = []
     for (const v of visits) {
       const addr = v.customer?.actual_address || v.customer?.erp_address
       if (!addr) continue
-      try {
-        const latlng = await geocodeAddr(geocoder, addr)
-        waypointLatLngs.push(latlng)
-      } catch(e) {
-        console.warn('地址 geocode 失敗:', addr)
-      }
+      try { waypointLatLngs.push(await geocodeAddr(geocoder, addr)) } catch(e) { console.warn('地址 geocode 失敗:', addr) }
     }
-
-    if (!waypointLatLngs.length) {
-      alert('拜訪客戶皆無可辨識的地址')
-      btn.textContent = '計算今日里程'; btn.disabled = false; return
-    }
-
-    // 計算路線
+    if (!waypointLatLngs.length) { alert('拜訪客戶皆無可辨識的地址'); btn.textContent = '計算今日里程'; btn.disabled = false; return }
     const result = await calcRoute(dirSvc, originLatLng, destLatLng, waypointLatLngs)
-
     let totalMeters = 0
     for (const leg of result.routes[0].legs) totalMeters += leg.distance.value
     const totalKm = Math.round(totalMeters / 100) / 10
-
-    // 存入 Supabase
     await sb.from('daily_route').update({ system_km: totalKm }).eq('id', todayRoute.id)
     todayRoute.system_km = totalKm
-
     document.getElementById('km-display').innerHTML = totalKm + '<span> km</span>'
     document.getElementById('km-sub').textContent = '預估油資 NT$' + Math.round(totalKm*4)
-
-    // 取出優化後的拜訪順序
-    const optimizedOrder = result.routes[0].waypoint_order  // Google 建議的索引順序
+    const optimizedOrder = result.routes[0].waypoint_order
     const orderedVisits = optimizedOrder.map(i => visits[i])
-
     openReportKmModal(totalKm, orderedVisits, result.routes[0].legs)
-
-  } catch(e) {
-    alert('里程計算失敗：' + e.message)
-    console.error(e)
-  }
-  btn.textContent = '計算今日里程'
-  btn.disabled = false
+  } catch(e) { alert('里程計算失敗：' + e.message); console.error(e) }
+  btn.textContent = '計算今日里程'; btn.disabled = false
 }
 
-// 業務回報里程 modal
 window.openReportKmModal = (sysKm, orderedVisits, legs) => {
   const existing = document.getElementById('modal-km')
   if (existing) existing.remove()
-
-  // 建立順序清單 HTML
   let routeHtml = ''
   if (orderedVisits?.length) {
-    routeHtml = `
-      <div style="margin-bottom:16px">
-        <div style="font-size:12px;font-weight:600;color:#65655C;margin-bottom:8px">📍 建議拜訪順序</div>
-        <div style="background:#f8f7f4;border-radius:8px;padding:10px">
-          <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:0.5px solid #e8e6e0">
-            <span style="font-size:10px;color:#aaa;width:20px;text-align:center">出發</span>
-            <span style="font-size:12px;color:#65655C">公司（台中市西屯區廣福路150巷25號）</span>
-          </div>
-          ${orderedVisits.map((v,i) => {
-            const leg = legs?.[i]
-            const dist = leg ? (Math.round(leg.distance.value/100)/10)+'km' : ''
-            const dur = leg ? Math.round(leg.duration.value/60)+'分' : ''
-            return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:0.5px solid #e8e6e0">
-              <span style="font-size:11px;font-weight:600;color:#1A472A;width:20px;text-align:center">${i+1}</span>
-              <div style="flex:1">
-                <div style="font-size:13px">${v.customer?.name||'—'}</div>
-                <div style="font-size:10px;color:#aaa">${v.customer?.actual_address||v.customer?.erp_address||''}</div>
-              </div>
-              <div style="text-align:right;font-size:10px;color:#aaa">${dist}<br>${dur}</div>
-            </div>`
-          }).join('')}
-          <div style="display:flex;align-items:center;gap:8px;padding:6px 0">
-            <span style="font-size:10px;color:#aaa;width:20px;text-align:center">回</span>
-            <span style="font-size:12px;color:#65655C">家</span>
-          </div>
-        </div>
-      </div>`
+    routeHtml = `<div style="margin-bottom:16px"><div style="font-size:12px;font-weight:600;color:#65655C;margin-bottom:8px">📍 建議拜訪順序</div><div style="background:#f8f7f4;border-radius:8px;padding:10px"><div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:0.5px solid #e8e6e0"><span style="font-size:10px;color:#aaa;width:20px;text-align:center">出發</span><span style="font-size:12px;color:#65655C">公司（台中市西屯區廣福路150巷25號）</span></div>${orderedVisits.map((v,i)=>{const leg=legs?.[i];const dist=leg?(Math.round(leg.distance.value/100)/10)+'km':'';const dur=leg?Math.round(leg.duration.value/60)+'分':'';return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:0.5px solid #e8e6e0"><span style="font-size:11px;font-weight:600;color:#1A472A;width:20px;text-align:center">${i+1}</span><div style="flex:1"><div style="font-size:13px">${v.customer?.name||'—'}</div><div style="font-size:10px;color:#aaa">${v.customer?.actual_address||v.customer?.erp_address||''}</div></div><div style="text-align:right;font-size:10px;color:#aaa">${dist}<br>${dur}</div></div>`}).join('')}<div style="display:flex;align-items:center;gap:8px;padding:6px 0"><span style="font-size:10px;color:#aaa;width:20px;text-align:center">回</span><span style="font-size:12px;color:#65655C">家</span></div></div></div>`
   }
-
   const modal = document.createElement('div')
   modal.id = 'modal-km'
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:flex-end'
-  modal.innerHTML = `
-    <div style="background:#fff;border-radius:16px 16px 0 0;width:100%;padding:24px;max-height:85vh;overflow-y:auto">
-      <div style="font-size:16px;font-weight:600;margin-bottom:4px">今日里程計算完成</div>
-      <div style="font-size:13px;color:#999;margin-bottom:16px">系統計算最短路線：<span style="font-weight:600;color:#1A472A">${sysKm} km</span></div>
-      ${routeHtml}
-      <div style="margin-bottom:16px">
-        <label style="font-size:12px;color:#65655C;display:block;margin-bottom:4px">您的實際里程（km）</label>
-        <input id="km-input" type="number" step="0.1" value="${sysKm}"
-          style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:16px;outline:none">
-        <div style="font-size:11px;color:#aaa;margin-top:4px">與系統計算差異 &gt; 15% 需管理者審核</div>
-      </div>
-      <div style="display:flex;gap:10px">
-        <button onclick="document.getElementById('modal-km').remove()"
-          style="flex:1;padding:12px;border:1px solid #ddd;border-radius:8px;background:#f5f5f5;font-size:14px;cursor:pointer">取消</button>
-        <button onclick="submitKm(${sysKm})"
-          style="flex:2;padding:12px;border:none;border-radius:8px;background:#1A472A;color:#fff;font-size:14px;font-weight:500;cursor:pointer">確認送出</button>
-      </div>
-    </div>
-  `
+  modal.innerHTML = `<div style="background:#fff;border-radius:16px 16px 0 0;width:100%;padding:24px;max-height:85vh;overflow-y:auto"><div style="font-size:16px;font-weight:600;margin-bottom:4px">今日里程計算完成</div><div style="font-size:13px;color:#999;margin-bottom:16px">系統計算最短路線：<span style="font-weight:600;color:#1A472A">${sysKm} km</span></div>${routeHtml}<div style="margin-bottom:16px"><label style="font-size:12px;color:#65655C;display:block;margin-bottom:4px">您的實際里程（km）</label><input id="km-input" type="number" step="0.1" value="${sysKm}" style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:16px;outline:none"><div style="font-size:11px;color:#aaa;margin-top:4px">與系統計算差異 &gt; 15% 需管理者審核</div></div><div style="display:flex;gap:10px"><button onclick="document.getElementById('modal-km').remove()" style="flex:1;padding:12px;border:1px solid #ddd;border-radius:8px;background:#f5f5f5;font-size:14px;cursor:pointer">取消</button><button onclick="submitKm(${sysKm})" style="flex:2;padding:12px;border:none;border-radius:8px;background:#1A472A;color:#fff;font-size:14px;font-weight:500;cursor:pointer">確認送出</button></div></div>`
   document.body.appendChild(modal)
   document.getElementById('km-input').focus()
 }
@@ -1679,104 +1219,42 @@ window.submitKm = async (sysKm) => {
   const gmapsKm = parseFloat(document.getElementById('km-input').value) || sysKm
   const diffPct = sysKm > 0 ? Math.abs(gmapsKm - sysKm) / sysKm : 0
   const needsReview = diffPct > 0.15
-
-  // 更新 daily_route
   const updateData = { gmaps_km: gmapsKm }
-  if (!needsReview) {
-    // 差異小於 15%，直接用業務回報的
-    updateData.approved_km = gmapsKm
-  }
+  if (!needsReview) updateData.approved_km = gmapsKm
   await sb.from('daily_route').update(updateData).eq('id', todayRoute.id)
   todayRoute.gmaps_km = gmapsKm
   if (!needsReview) todayRoute.approved_km = gmapsKm
-
   document.getElementById('modal-km').remove()
-
-  // 更新顯示
-  document.getElementById('km-sub').textContent = needsReview
-    ? `業務回報 ${gmapsKm}km｜差異 ${Math.round(diffPct*100)}%，待審核`
-    : `業務回報 ${gmapsKm}km｜已確認`
-
-  if (needsReview) {
-    alert(`里程差異 ${Math.round(diffPct*100)}%（超過15%），已送出待管理者審核`)
-  }
+  document.getElementById('km-sub').textContent = needsReview ? `業務回報 ${gmapsKm}km｜差異 ${Math.round(diffPct*100)}%，待審核` : `業務回報 ${gmapsKm}km｜已確認`
+  if (needsReview) alert(`里程差異 ${Math.round(diffPct*100)}%（超過15%），已送出待管理者審核`)
 }
 
-// ── 拜訪歷史 ──
 async function renderHistory() {
   const c = document.getElementById('page-content')
   c.innerHTML = '<div class="loading"><div class="spinner"></div> 載入中</div>'
   if (!currentRep) return
-
   const day60ago = new Date(Date.now()-60*86400000).toISOString().slice(0,10)
-  const { data: routes } = await sb.from('daily_route')
-    .select('id,route_date')
-    .eq('rep_id', currentRep.id)
-    .gte('route_date', day60ago)
-    .order('route_date', {ascending:false})
-
-  if (!routes?.length) {
-    c.innerHTML = '<div class="empty-state"><i class="ti ti-history"></i>近60天無拜訪記錄</div>'
-    return
-  }
-
+  const { data: routes } = await sb.from('daily_route').select('id,route_date').eq('rep_id', currentRep.id).gte('route_date', day60ago).order('route_date', {ascending:false})
+  if (!routes?.length) { c.innerHTML = '<div class="empty-state"><i class="ti ti-history"></i>近60天無拜訪記錄</div>'; return }
   const routeIds = routes.map(r=>r.id)
-  const routeDateMap = {}
-  routes.forEach(r => { routeDateMap[r.id] = r.route_date })
-
-  const { data: allVisits } = await sb.from('visit_log')
-    .select('*, customer(id,name,type,grade)')
-    .in('route_id', routeIds)
-    .order('visited_at', {ascending:false})
-    .limit(500)
-
-  if (!allVisits?.length) {
-    c.innerHTML = '<div class="empty-state"><i class="ti ti-history"></i>近60天無拜訪記錄</div>'
-    return
-  }
-
+  const routeDateMap = {}; routes.forEach(r => { routeDateMap[r.id] = r.route_date })
+  const { data: allVisits } = await sb.from('visit_log').select('*, customer(id,name,type,grade)').in('route_id', routeIds).order('visited_at', {ascending:false}).limit(500)
+  if (!allVisits?.length) { c.innerHTML = '<div class="empty-state"><i class="ti ti-history"></i>近60天無拜訪記錄</div>'; return }
   const byDate = {}
-  allVisits.forEach(v => {
-    const date = routeDateMap[v.route_id] || v.visited_at?.slice(0,10)
-    if (!byDate[date]) byDate[date] = []
-    byDate[date].push(v)
-  })
-
+  allVisits.forEach(v => { const date = routeDateMap[v.route_id] || v.visited_at?.slice(0,10); if (!byDate[date]) byDate[date] = []; byDate[date].push(v) })
   const dates = Object.keys(byDate).sort((a,b)=>b.localeCompare(a))
-
   let html = `<div style="font-size:12px;color:#aaa;margin-bottom:12px">近60天拜訪記錄</div>`
   dates.forEach(date => {
     const dayVisits = byDate[date]
     const closed = dayVisits.filter(v=>v.result==='成交')
     const amt = closed.reduce((s,v)=>s+(v.amount||0),0)
-    html += `<div style="margin-bottom:16px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-        <span style="font-size:13px;font-weight:600">${date}</span>
-        <span style="font-size:11px;color:#aaa">${dayVisits.length} 家｜成交 ${closed.length} 家${amt?'｜NT$'+amt.toLocaleString():''}</span>
-      </div>
-      ${dayVisits.map((v,i) => `
-        <div class="card" style="border-left:3px solid ${v.result==='成交'?'#52B788':v.result==='待跟進'?'#EF9F27':'#ddd'};margin-bottom:6px">
-          <div class="card-top">
-            <div class="avatar ${avatarColors(i)}">${initials(v.customer?.name)}</div>
-            <div style="flex:1">
-              <div class="card-name">${v.customer?.name||'—'}</div>
-              <div class="card-sub">${v.customer?.type||''} · ${new Date(v.visited_at).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'})}</div>
-            </div>
-            <span class="badge ${v.result==='成交'?'b-success':v.result==='待跟進'?'b-warn':'b-gray'}">${v.result}</span>
-          </div>
-          ${v.amount?`<div class="card-meta"><span><i class="ti ti-currency-dollar"></i>NT$${v.amount.toLocaleString()}</span></div>`:''}
-          ${v.notes?`<div class="card-meta"><span><i class="ti ti-notes"></i>${v.notes}</span></div>`:''}
-        </div>`).join('')}
-    </div>`
+    html += `<div style="margin-bottom:16px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span style="font-size:13px;font-weight:600">${date}</span><span style="font-size:11px;color:#aaa">${dayVisits.length} 家｜成交 ${closed.length} 家${amt?'｜NT$'+amt.toLocaleString():''}</span></div>${dayVisits.map((v,i)=>`<div class="card" style="border-left:3px solid ${v.result==='成交'?'#52B788':v.result==='待跟進'?'#EF9F27':'#ddd'};margin-bottom:6px"><div class="card-top"><div class="avatar ${avatarColors(i)}">${initials(v.customer?.name)}</div><div style="flex:1"><div class="card-name">${v.customer?.name||'—'}</div><div class="card-sub">${v.customer?.type||''} · ${new Date(v.visited_at).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'})}</div></div><span class="badge ${v.result==='成交'?'b-success':v.result==='待跟進'?'b-warn':'b-gray'}">${v.result}</span></div>${v.amount?`<div class="card-meta"><span><i class="ti ti-currency-dollar"></i>NT$${v.amount.toLocaleString()}</span></div>`:''}${v.notes?`<div class="card-meta"><span><i class="ti ti-notes"></i>${v.notes}</span></div>`:''}</div>`).join('')}</div>`
   })
   c.innerHTML = html
 }
 
-document.getElementById('login-password').addEventListener('keydown', e => {
-  if (e.key==='Enter') handleLogin()
-})
+document.getElementById('login-password').addEventListener('keydown', e => { if (e.key==='Enter') handleLogin() })
 
-// 頁面載入時檢查是否已登入
 sb.auth.getSession().then(async ({ data: { session } }) => {
   if (session?.user) {
     const { data: rep } = await sb.from('sales_rep').select('*').eq('auth_user_id',session.user.id).maybeSingle()
