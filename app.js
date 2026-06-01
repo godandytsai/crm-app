@@ -1330,7 +1330,7 @@ window.openVisitModal = async () => {
 
   // 載入客戶清單（用自己負責的）
   if (!_visitCustomers.length) {
-    const q = sb.from('customer').select('id,name,type,grade').eq('is_active',true).order('grade').order('name')
+    const q = sb.from('customer').select('id,name,type,grade,region').eq('is_active',true).order('grade').order('name')
     const filtered = currentRep ? q.eq('assigned_rep_id', currentRep.id) : q
     const { data } = await filtered
     _visitCustomers = data || []
@@ -1359,6 +1359,7 @@ window.searchCustomers = (kw) => {
 
   if (!kl) {
     if (!_visitCustomers.length) { dd.style.display='none'; return }
+    // 依 region（區域編號）分組 → ABC
     const regionMap = {}
     _visitCustomers.forEach(c => {
       const reg = c.region || c.type || '未分類'
@@ -1371,14 +1372,14 @@ window.searchCustomers = (kw) => {
       const grps = regionMap[reg]
       const total = Object.values(grps).reduce((s,a)=>s+a.length,0)
       if (!total) return
-      html += `<div style="padding:6px 12px 2px;font-size:11px;font-weight:600;color:#1A472A;background:#f0f8f4;border-bottom:1px solid #e8f4ec">${reg}（${total}）</div>`
+      html += `<div style="padding:6px 12px 2px;font-size:11px;font-weight:600;color:#1A472A;background:#f0f8f4;border-bottom:1px solid #e8f4ec;position:sticky;top:0">${reg}（${total}）</div>`
       ;['A','B','C','其他'].forEach(grade => {
         const list = grps[grade]
         if (!list.length) return
-        html += `<div style="padding:3px 12px 1px 20px;font-size:10px;color:#aaa">${grade==='其他'?'未分級':grade+' 級'}（${list.length}）</div>`
+        html += `<div style="padding:3px 12px 1px 16px;font-size:10px;color:#aaa;background:#fafafa">${grade==='其他'?'未分級':grade+' 級'}（${list.length}）</div>`
         list.forEach(c => {
           const safeName = c.name.replace(/'/g,"\'")
-          html += `<div class="dropdown-item" style="padding:6px 12px 6px 28px" onclick="selectCustomer('${c.id}','${safeName}')">
+          html += `<div class="dropdown-item" style="padding:8px 12px 8px 24px" onclick="selectCustomer('${c.id}','${safeName}')">
             ${c.name}<span style="font-size:10px;color:#999;margin-left:6px">${c.grade||''}</span>
           </div>`
         })
@@ -1389,12 +1390,13 @@ window.searchCustomers = (kw) => {
     return
   }
 
-  const hits = _visitCustomers.filter(c => c.name.toLowerCase().includes(kl)).slice(0,15)
+  // 有關鍵字直接搜尋
+  const hits = _visitCustomers.filter(c => c.name.toLowerCase().includes(kl)).slice(0,20)
   if (!hits.length) { dd.style.display='none'; return }
   dd.innerHTML = hits.map(c => {
     const safeName = c.name.replace(/'/g,"\'")
     return `<div class="dropdown-item" onclick="selectCustomer('${c.id}','${safeName}')">
-      ${c.name}<span style="font-size:10px;color:#999;margin-left:6px">${c.region||c.type||''} ${c.grade||''}</span>
+      ${c.name}<span style="font-size:10px;color:#999;margin-left:6px">${c.region||''} ${c.grade||''}</span>
     </div>`
   }).join('')
   dd.style.display = 'block'
