@@ -103,20 +103,63 @@ export function parseSalesWS(ws, XLSX) {
   return rows
 }
 
-// ── 上傳到 Supabase（upsert，重複資料自動更新）──────────────
+// ── 取得資料中的日期範圍 ──────────────────────────────────────
+export function getDateRange(rows) {
+  let minDate = null, maxDate = null
+  for (const r of rows) {
+    const d = r.order_date // 'YYYY-MM-DD'
+    if (!d) continue
+    if (!minDate || d < minDate) minDate = d
+    if (!maxDate || d > maxDate) maxDate = d
+  }
+  return { minDate, maxDate }
+}
+
+// ── 刪除指定日期範圍的資料 ───────────────────────────────────
+export async function deleteSalesByDateRange(sb, minDate, maxDate) {
+  const { error } = await sb
+    .from('sales_order')
+    .delete()
+    .gte('order_date', minDate)
+    .lte('order_date', maxDate)
+  if (error) throw error
+}
+
+// ── 清除某年月的資料（手動清除用）────────────────────────────
+export async function deleteSalesByMonth(sb, year, month) {
+  const { error } = await sb.from('sales_order')
+    .delete()
+    .eq('year', year)
+    .eq('month', month)
+  if (error) throw error
+}
+
+// ── 上傳到 Supabase（先清除日期範圍，再插入）────────────────
+// onProgress(done, total, stage, msg)
+// stage: 'deleting' | 'uploading'
 export async function uploadSalesToSupabase(sb, rows, onProgress) {
   const BATCH = 500
+
+  // 1. 偵測檔案中的日期範圍
+  const { minDate, maxDate } = getDateRange(rows)
+  if (!minDate || !maxDate) throw new Error('無法取得日期範圍')
+
+  // 2. 刪除 Supabase 中該日期範圍的舊資料
+  if (onProgress) onProgress(0, rows.length, 'deleting', `刪除 ${minDate} ~ ${maxDate} 舊資料...`)
+  await deleteSalesByDateRange(sb, minDate, maxDate)
+
+  // 3. 批次插入新資料
   let done = 0
   const total = rows.length
-
   for (let i = 0; i < rows.length; i += BATCH) {
     const batch = rows.slice(i, i + BATCH)
     const { error } = await sb.from('sales_order').upsert(batch, { onConflict: 'id' })
     if (error) throw error
     done += batch.length
-    if (onProgress) onProgress(done, total)
+    if (onProgress) onProgress(done, total, 'uploading', `上傳中 ${done}/${total} 筆`)
   }
-  return done
+
+  return { inserted: total, minDate, maxDate }
 }
 
 // ── 查詢已上傳的資料範圍 ──────────────────────────────────────
@@ -135,13 +178,4 @@ export async function getSalesDataMeta(sb) {
     to: months[months.length - 1],
     months
   }
-}
-
-// ── 清除某年月的資料（重新上傳時用）─────────────────────────
-export async function deleteSalesByMonth(sb, year, month) {
-  const { error } = await sb.from('sales_order')
-    .delete()
-    .eq('year', year)
-    .eq('month', month)
-  if (error) throw error
 }
