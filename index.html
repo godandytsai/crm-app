@@ -57,7 +57,7 @@
       <div class="form-group">
         <label for="visit-customer-search">客戶</label>
         <div class="search-wrap">
-          <input type="text" id="visit-customer-search" placeholder="輸入客戶名稱搜尋..." autocomplete="off" oninput="searchCustomers(this.value)">
+          <input type="text" id="visit-customer-search" placeholder="點此選擇客戶..." autocomplete="off" oninput="searchCustomers(this.value)" onfocus="searchCustomers('')" onmousedown="searchCustomers('')">
           <div id="customer-dropdown" class="dropdown" style="display:none"></div>
         </div>
         <input type="hidden" id="visit-customer-id">
