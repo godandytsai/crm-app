@@ -1330,7 +1330,7 @@ window.openVisitModal = async () => {
 
   // 載入客戶清單（用自己負責的）
   if (!_visitCustomers.length) {
-    const q = sb.from('customer').select('id,name,type,grade,region').eq('is_active',true).order('name')
+    const q = sb.from('customer').select('id,name,type,grade').eq('is_active',true).order('name')
     const filtered = currentRep ? q.eq('assigned_rep_id', currentRep.id) : q
     const { data } = await filtered
     _visitCustomers = data || []
@@ -1357,7 +1357,7 @@ window.searchCustomers = (kw) => {
     // 依 region（區域編號）分組 → ABC
     const regionMap = {}
     _visitCustomers.forEach(c => {
-      const reg = c.region || c.type || '未分類'
+      const reg = c.type || '未分類'
       if (!regionMap[reg]) regionMap[reg] = {A:[],B:[],C:[],'其他':[]}
       const g = ['A','B','C'].includes(c.grade) ? c.grade : '其他'
       regionMap[reg][g].push(c)
