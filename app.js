@@ -1354,7 +1354,6 @@ window.searchCustomers = (kw) => {
 
   if (!kl) {
     if (!_visitCustomers.length) { dd.style.display='none'; return }
-    // 依 type（通路分類）→ ABC 分層
     const typeMap = {}
     _visitCustomers.forEach(c => {
       const t = c.type || '其他'
@@ -1363,29 +1362,41 @@ window.searchCustomers = (kw) => {
       typeMap[t][g].push(c)
     })
     let html = ''
-    Object.keys(typeMap).sort().forEach(type => {
+    Object.keys(typeMap).sort().forEach((type, ti) => {
       const grps = typeMap[type]
       const total = Object.values(grps).reduce((s,a)=>s+a.length,0)
       if (!total) return
-      html += `<div style="padding:6px 12px 2px;font-size:11px;font-weight:600;color:#1A472A;background:#f0f8f4;border-bottom:1px solid #e8f4ec">${type}（${total}）</div>`
+      const tid = 'ddtype_'+ti
+      // 預設全部收合
+      html += `<div style="padding:6px 12px;font-size:12px;font-weight:600;color:#1A472A;background:#f0f8f4;border-bottom:1px solid #e8f4ec;cursor:pointer;display:flex;justify-content:space-between;align-items:center" onclick="
+        var b=document.getElementById('${tid}');
+        var a=document.getElementById('${tid}_arr');
+        if(b.style.display==='none'){b.style.display='';a.textContent='▼'}else{b.style.display='none';a.textContent='▶'}
+      ">
+        <span>${type}（${total}）</span>
+        <span id="${tid}_arr">▶</span>
+      </div>
+      <div id="${tid}" style="display:none">`
       ;['A','B','C','未分級'].forEach(grade => {
         const list = grps[grade]
         if (!list.length) return
         html += `<div style="padding:3px 12px 1px 16px;font-size:10px;color:#aaa;background:#fafafa">${grade} 級（${list.length}）</div>`
         list.forEach(c => {
           const safeName = c.name.replace(/'/g,"\'")
+          const gradeColor = c.grade==='A'?'#C8A93B':c.grade==='B'?'#2C6FAC':'#888'
+          const gradeBg = c.grade==='A'?'#FDF6DC':c.grade==='B'?'#E8F1FA':'#F0F0F0'
           html += `<div class="dropdown-item" style="padding:8px 12px 8px 24px" onclick="selectCustomer('${c.id}','${safeName}')">
-            ${c.name}
+            ${c.name}<span style="font-size:10px;font-weight:700;color:${gradeColor};background:${gradeBg};border-radius:3px;padding:1px 4px;margin-left:5px">${c.grade||''}</span>
           </div>`
         })
       })
+      html += `</div>`
     })
     dd.innerHTML = html || '<div style="padding:10px 12px;color:#aaa;font-size:13px">無客戶資料</div>'
     dd.style.display = 'block'
     return
   }
 
-  // 有關鍵字直接搜尋
   const hits = _visitCustomers.filter(c => c.name.toLowerCase().includes(kl)).slice(0,20)
   if (!hits.length) { dd.style.display='none'; return }
   dd.innerHTML = hits.map(c => {
