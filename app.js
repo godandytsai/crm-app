@@ -1354,28 +1354,28 @@ window.searchCustomers = (kw) => {
 
   if (!kl) {
     if (!_visitCustomers.length) { dd.style.display='none'; return }
-    // 依 region（區域編號）分組 → ABC
-    const regionMap = {}
+    // 依 type（通路分類）→ ABC 分層
+    const typeMap = {}
     _visitCustomers.forEach(c => {
-      const reg = c.type || '未分類'
-      if (!regionMap[reg]) regionMap[reg] = {A:[],B:[],C:[],'其他':[]}
-      const g = ['A','B','C'].includes(c.grade) ? c.grade : '其他'
-      regionMap[reg][g].push(c)
+      const t = c.type || '其他'
+      if (!typeMap[t]) typeMap[t] = {A:[],B:[],C:[],'未分級':[]}
+      const g = ['A','B','C'].includes(c.grade) ? c.grade : '未分級'
+      typeMap[t][g].push(c)
     })
     let html = ''
-    Object.keys(regionMap).sort().forEach(reg => {
-      const grps = regionMap[reg]
+    Object.keys(typeMap).sort().forEach(type => {
+      const grps = typeMap[type]
       const total = Object.values(grps).reduce((s,a)=>s+a.length,0)
       if (!total) return
-      html += `<div style="padding:6px 12px 2px;font-size:11px;font-weight:600;color:#1A472A;background:#f0f8f4;border-bottom:1px solid #e8f4ec;position:sticky;top:0">${reg}（${total}）</div>`
-      ;['A','B','C','其他'].forEach(grade => {
+      html += `<div style="padding:6px 12px 2px;font-size:11px;font-weight:600;color:#1A472A;background:#f0f8f4;border-bottom:1px solid #e8f4ec">${type}（${total}）</div>`
+      ;['A','B','C','未分級'].forEach(grade => {
         const list = grps[grade]
         if (!list.length) return
-        html += `<div style="padding:3px 12px 1px 16px;font-size:10px;color:#aaa;background:#fafafa">${grade==='其他'?'未分級':grade+' 級'}（${list.length}）</div>`
+        html += `<div style="padding:3px 12px 1px 16px;font-size:10px;color:#aaa;background:#fafafa">${grade} 級（${list.length}）</div>`
         list.forEach(c => {
           const safeName = c.name.replace(/'/g,"\'")
           html += `<div class="dropdown-item" style="padding:8px 12px 8px 24px" onclick="selectCustomer('${c.id}','${safeName}')">
-            ${c.name}<span style="font-size:10px;color:#999;margin-left:6px">${c.grade||''}</span>
+            ${c.name}
           </div>`
         })
       })
@@ -1391,7 +1391,7 @@ window.searchCustomers = (kw) => {
   dd.innerHTML = hits.map(c => {
     const safeName = c.name.replace(/'/g,"\'")
     return `<div class="dropdown-item" onclick="selectCustomer('${c.id}','${safeName}')">
-      ${c.name}<span style="font-size:10px;color:#999;margin-left:6px">${c.region||''} ${c.grade||''}</span>
+      ${c.name}<span style="font-size:10px;color:#999;margin-left:6px">${c.type||''} ${c.grade||''}</span>
     </div>`
   }).join('')
   dd.style.display = 'block'
