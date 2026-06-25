@@ -622,8 +622,7 @@ window.mgrUploadCustomers = async (inp) => {
   const file = inp.files[0]; if (!file) return
   const logEl = document.getElementById('mgr-cust-log')
   logEl.style.display = 'block'
-  const addLog = msg => { logEl.textContent += msg+'
-'; logEl.scrollTop=logEl.scrollHeight }
+  const addLog = msg => { logEl.textContent += msg+'\n'; logEl.scrollTop=logEl.scrollHeight }
   addLog('讀取 '+file.name+'...')
   if (!window.XLSX) {
     await new Promise(res => {
