@@ -90,18 +90,9 @@ window.switchPage = (page) => {
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'))
   const nav = document.getElementById('nav-'+page)
   if (nav) nav.classList.add('active')
-  const titleEl = document.getElementById('top-title')
-  const pageTitles = {customers:'我的客戶',pending:'待辦清單',stats:'我的數字',history:'拜訪歷史'}
-  if (page === 'today') {
-    const now = new Date()
-    const dateStr = (now.getMonth()+1) + '月' + now.getDate() + '日'
-    const name = currentRep?.name || ''
-    titleEl.innerHTML = `<span style="font-weight:400;font-size:12px;color:#65655C">${dateStr}</span>&nbsp;&nbsp;<span style="font-weight:600">您好，${name}</span>`
-  } else {
-    titleEl.textContent = pageTitles[page] || page
-  }
+  const titles = {today:'今日拜訪',customers:'我的客戶',pending:'待辦清單',stats:'我的數字'}
+  document.getElementById('top-title').textContent = titles[page]||''
   if (page==='today') renderToday()
-  if (page==='history') renderHistory()
   if (page==='customers') renderCustomers()
   if (page==='pending') renderPending()
   if (page==='stats') renderStats()
@@ -333,7 +324,10 @@ window.openCustomerDetail = async (custId) => {
 
     <div style="margin-top:16px">
       <div class="sec-label">地址</div>
-      <div style="font-size:13px;color:#555">${cu.actual_address||cu.erp_address||'未設定'}</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+        <div style="font-size:13px;color:#555">${cu.actual_address||cu.erp_address||'未設定'}</div>
+        ${(cu.actual_address||cu.erp_address)?`<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cu.actual_address||cu.erp_address)}" target="_blank" style="flex-shrink:0;padding:6px 12px;background:#1A472A;color:#fff;border-radius:8px;font-size:12px;text-decoration:none"><i class="ti ti-map-pin"></i> 導航</a>`:''}
+      </div>
       ${cu.address_mismatch?'<div class="card-note" style="color:#854F0B;margin-top:6px"><i class="ti ti-alert-triangle"></i> 地址差異待審核</div>':''}
     </div>
   `
@@ -458,7 +452,7 @@ async function renderStats() {
       </div>
     </div>`:''}
     <div class="metric-row">
-      <div class="metric-card"><div class="mc-label">累計里程</div><div class="mc-val">${Math.round(totalKm*10)/10}<span> km</span></div><div class="mc-sub">油資 NT$${Math.round(totalKm*4)}</div></div>
+      <div class="metric-card"><div class="mc-label">累計里程</div><div class="mc-val">${Math.round(totalKm)}<span> km</span></div><div class="mc-sub">油資 NT$${Math.round(totalKm*4)}</div></div>
       <div class="metric-card"><div class="mc-label">里程補貼</div><div class="mc-val" style="font-size:16px">NT$${Math.round(totalKm*4).toLocaleString()}</div></div>
     </div>
     <div class="sec-label">近6個月業績</div>
@@ -477,7 +471,260 @@ async function renderStats() {
   `
 }
 
-async function renderManagerOverview() {
+// ── 管理者查看業務詳情 ──
+window.showRepDetail = async (repId) => {
+  const c = document.getElementById('page-content')
+  c.innerHTML = '<div class="loading"><div class="spinner"></div> 載入中</div>'
+  const todayStr = today()
+  const period = todayStr.slice(0,7)
+  const monthStart = period + '-01'
+  const { data: rep } = await sb.from('sales_rep').select('id,name').eq('id',repId).single()
+  const { data: routes } = await sb.from('daily_route')
+    .select('id,route_date,system_km,gmaps_km,approved_km')
+    .eq('rep_id', repId).gte('route_date', monthStart).order('route_date', {ascending:false})
+  if (!routes?.length) {
+    c.innerHTML = `<button class="btn-ghost" style="margin-bottom:12px" onclick="renderManagerOverview()">← 返回</button><div class="empty-state">本月尚無出勤記錄</div>`
+    return
+  }
+  const routeIds = routes.map(r=>r.id)
+  const routeDateMap = {}
+  routes.forEach(r => { routeDateMap[r.id] = r })
+  const { data: allVisits } = await sb.from('visit_log')
+    .select('id,route_id,result,amount,notes,visited_at,customer(id,name,type,grade)')
+    .in('route_id', routeIds).order('visited_at', {ascending:false}).limit(1000)
+  const byRoute = {}
+  routes.forEach(r => { byRoute[r.id] = { route: r, visits: [] } })
+  ;(allVisits||[]).forEach(v => { if (byRoute[v.route_id]) byRoute[v.route_id].visits.push(v) })
+  const totalVisits = (allVisits||[]).length
+  const totalClosed = (allVisits||[]).filter(v=>v.result==='成交').length
+  const totalAmt = (allVisits||[]).filter(v=>v.result==='成交').reduce((s,v)=>s+(v.amount||0),0)
+  const totalKm = routes.reduce((s,r)=>s+(r.approved_km||r.gmaps_km||r.system_km||0),0)
+  let html = `
+    <button class="btn-ghost" style="margin-bottom:12px" onclick="renderManagerOverview()">← 返回</button>
+    <div style="font-size:18px;font-weight:600;margin-bottom:4px">${rep?.name}</div>
+    <div style="font-size:12px;color:#aaa;margin-bottom:16px">${period} 月份統計</div>
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px">
+      <div class="metric-card"><div class="mc-label">本月拜訪</div><div class="mc-val">${totalVisits}<span> 次</span></div></div>
+      <div class="metric-card"><div class="mc-label">成交</div><div class="mc-val">${totalClosed}<span> 筆</span></div><div class="mc-sub">成交率 ${totalVisits?Math.round(totalClosed/totalVisits*100):0}%</div></div>
+      <div class="metric-card"><div class="mc-label">成交金額</div><div class="mc-val" style="font-size:15px">NT$${Math.round(totalAmt/1000)}K</div></div>
+      <div class="metric-card"><div class="mc-label">累計里程</div><div class="mc-val">${Math.round(totalKm*10)/10}<span> km</span></div></div>
+    </div>
+    <div class="sec-label">每日拜訪明細</div>`
+  routes.forEach(r => {
+    const { route, visits } = byRoute[r.id]
+    const closed = visits.filter(v=>v.result==='成交')
+    const amt = closed.reduce((s,v)=>s+(v.amount||0),0)
+    const km = route.approved_km||route.gmaps_km||route.system_km||0
+    html += `<div style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#f8f7f4;border-radius:8px;margin-bottom:6px">
+        <span style="font-size:13px;font-weight:600">${route.route_date}</span>
+        <div style="display:flex;gap:12px;font-size:11px;color:#65655C">
+          <span>拜訪 ${visits.length} 家</span>
+          <span>成交 ${closed.length} 筆${amt?'・NT$'+Math.round(amt/1000)+'K':''}</span>
+          ${km?`<span>${Math.round(km*10)/10} km</span>`:''}
+        </div>
+      </div>`
+    if (visits.length) {
+      visits.forEach((v,i) => {
+        html += `<div class="card" style="border-left:3px solid ${v.result==='成交'?'#52B788':v.result==='待跟進'?'#EF9F27':'#ddd'};margin-bottom:6px">
+          <div class="card-top">
+            <div class="avatar ${avatarColors(i)}">${initials(v.customer?.name)}</div>
+            <div style="flex:1">
+              <div class="card-name">${v.customer?.name||'—'}</div>
+              <div class="card-sub">${v.customer?.type||''} · ${new Date(v.visited_at).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'})}</div>
+            </div>
+            <span class="badge ${v.result==='成交'?'b-success':v.result==='待跟進'?'b-warn':'b-gray'}">${v.result}</span>
+          </div>
+          ${v.amount?`<div class="card-meta"><span><i class="ti ti-currency-dollar"></i>NT$${v.amount.toLocaleString()}</span></div>`:''}
+          ${v.notes?`<div class="card-meta"><span><i class="ti ti-notes"></i>${v.notes}</span></div>`:''}
+        </div>`
+      })
+    } else {
+      html += `<div style="font-size:12px;color:#aaa;padding:8px 0">無拜訪記錄（僅出勤）</div>`
+    }
+    html += `</div>`
+  })
+  c.innerHTML = html
+}
+
+// ── 里程審核 ──
+window.approveKm = async (routeId, useSystem) => {
+  let km
+  if (useSystem === 'system') {
+    const { data: route } = await sb.from('daily_route').select('system_km').eq('id',routeId).single()
+    km = route?.system_km
+  } else {
+    km = parseFloat(document.getElementById('km-approve-'+routeId)?.value)
+  }
+  if (!km) return
+  await sb.from('daily_route').update({approved_km: km}).eq('id', routeId)
+  renderManagerOverview()
+}
+
+// ── 出勤月曆日期點擊 ──
+window.showCalDay = async (dateStr) => {
+  const { data: routes } = await sb.from('daily_route')
+    .select('id,route_date,system_km,gmaps_km,approved_km,sales_rep(name),visit_log(id,result,customer(name))')
+    .eq('route_date', dateStr)
+  const el = document.getElementById('cal-detail')
+  if (!el) return
+  if (!routes?.length) { el.innerHTML = `<div style="color:#aaa;font-size:13px;padding:12px 0">${dateStr} 無出勤記錄</div>`; return }
+  el.innerHTML = `<div style="font-size:13px;font-weight:600;margin-bottom:8px">${dateStr}</div>` +
+    routes.map(r => {
+      const km = r.approved_km||r.gmaps_km||r.system_km||0
+      const visits = r.visit_log||[]
+      return `<div class="card" style="margin-bottom:8px">
+        <div class="card-top">
+          <div class="avatar av-green">${initials(r.sales_rep?.name)}</div>
+          <div style="flex:1">
+            <div class="card-name">${r.sales_rep?.name}</div>
+            <div class="card-sub">拜訪 ${visits.length} 家｜里程 ${km} km</div>
+          </div>
+        </div>
+        ${visits.length?`<div style="margin-top:8px;font-size:12px;color:#555">${visits.map(v=>`· ${v.customer?.name||'—'} <span style="color:${v.result==='成交'?'#3B6D11':'#aaa'}">${v.result}</span>`).join('<br>')}</div>`:''}
+      </div>`
+    }).join('')
+}
+
+// ── 重新計算 ABC ──
+window.recalcABC = async () => {
+  const el = document.getElementById('abc-result')
+  if (el) el.textContent = '計算中...'
+  const day180ago = new Date(Date.now()-180*86400000).toISOString().slice(0,10)
+  const { data: orders } = await sb.from('sales_order')
+    .select('customer_name,amount,year,month').eq('order_type','出貨').gt('amount',0)
+    .gte('order_date', day180ago).limit(50000)
+  const custMonths = {}, custTotal = {}
+  ;(orders||[]).forEach(o => {
+    const k = o.customer_name; if (!k) return
+    const ym = o.year+'-'+String(o.month).padStart(2,'0')
+    if (!custMonths[k]) { custMonths[k] = new Set(); custTotal[k] = 0 }
+    custMonths[k].add(ym); custTotal[k] += o.amount
+  })
+  const custAvg = {}
+  Object.keys(custTotal).forEach(k => { custAvg[k] = custTotal[k]/(custMonths[k].size||1) })
+  const { data: customers } = await sb.from('customer').select('id,name,grade').eq('is_active',true).limit(2000)
+  let aCount=0, bCount=0, cCount=0
+  const updates = (customers||[]).map(cu => {
+    const avg = custAvg[cu.name]||0
+    let grade = avg>10000?'A':avg>=1000?'B':'C'
+    if (grade==='A') aCount++; else if (grade==='B') bCount++; else cCount++
+    return { id: cu.id, grade }
+  })
+  for (let i=0;i<updates.length;i+=100) await sb.from('customer').upsert(updates.slice(i,i+100))
+  const msg = `✅ 更新完成：A ${aCount} 家 · B ${bCount} 家 · C ${cCount} 家`
+  if (el) el.textContent = msg
+  return msg
+}
+
+// ── 上傳客戶檔 ──
+window.mgrUploadCustomers = async (inp) => {
+  const file = inp.files[0]; if (!file) return
+  const logEl = document.getElementById('mgr-cust-log')
+  logEl.style.display = 'block'
+  const addLog = msg => { logEl.textContent += msg+'
+'; logEl.scrollTop=logEl.scrollHeight }
+  addLog('讀取 '+file.name+'...')
+  if (!window.XLSX) {
+    await new Promise(res => {
+      const s=document.createElement('script'); s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'
+      s.onload=res; document.head.appendChild(s)
+    })
+  }
+  const wb = await new Promise(res => {
+    const fr=new FileReader(); fr.onload=e=>res(XLSX.read(e.target.result,{type:'binary',raw:false})); fr.readAsBinaryString(file)
+  })
+  const ws = wb.Sheets[wb.SheetNames[0]]
+  const data = XLSX.utils.sheet_to_json(ws,{defval:null})
+  addLog('解析完成：'+data.length+' 筆')
+  const { data: reps } = await sb.from('sales_rep').select('id,name')
+  const repMap = {}; (reps||[]).forEach(r=>{repMap[r.name]=r.id})
+  const { data: existCusts } = await sb.from('customer').select('id,name').limit(5000)
+  const existMap = {}; (existCusts||[]).forEach(c=>{existMap[c.name]=c.id})
+  const CH_REMAP = {'嬰兒房':'嬰藥','藥局':'嬰藥','藥局/嬰兒房':'嬰藥','機關福利社':'嬰藥',
+    '安養院':'安養&醫材','醫院':'安養&醫材','醫院/安養院':'安養&醫材','醫療器材行':'安養&醫材'}
+  let newCount=0, updateCount=0
+  const upsertRows = []
+  data.forEach(r => {
+    const name=String(r['客戶全稱']||r['客戶簡稱']||'').trim(); if(!name) return
+    const repName=String(r['業務員']||'').trim()
+    const rawType=String(r['客戶分類']||'').trim()
+    const type=CH_REMAP[rawType]||rawType
+    const row = { name, type, erp_address:String(r['營業地址']||r['送貨地址']||'').trim()||null,
+      assigned_rep_id:repMap[repName]||null, is_active:true, payment_terms:String(r['結帳方式']||'').trim()||null }
+    if (existMap[name]) { row.id=existMap[name]; updateCount++ } else { newCount++ }
+    upsertRows.push(row)
+  })
+  let done=0
+  for (let i=0;i<upsertRows.length;i+=100) {
+    const { error }=await sb.from('customer').upsert(upsertRows.slice(i,i+100),{onConflict:'name',ignoreDuplicates:false})
+    if (error) addLog('⚠ '+error.message.slice(0,80)); else done+=Math.min(100,upsertRows.length-i)
+  }
+  addLog(`✅ 完成：新增 ${newCount}，更新 ${updateCount}，共 ${done} 筆`)
+  addLog('正在重新計算 ABC 等級...')
+  await recalcABC()
+  inp.value=''
+}
+
+// ── 拜訪歷史 ──
+async function renderHistory() {
+  const c = document.getElementById('page-content')
+  c.innerHTML = '<div class="loading"><div class="spinner"></div> 載入中</div>'
+  if (!currentRep) return
+  const day60ago = new Date(Date.now()-60*86400000).toISOString().slice(0,10)
+  const { data: routes } = await sb.from('daily_route')
+    .select('id,route_date').eq('rep_id', currentRep.id)
+    .gte('route_date', day60ago).order('route_date', {ascending:false})
+  if (!routes?.length) {
+    c.innerHTML = '<div class="empty-state"><i class="ti ti-history"></i>近60天無拜訪記錄</div>'; return
+  }
+  const routeIds = routes.map(r=>r.id)
+  const routeDateMap = {}; routes.forEach(r=>{routeDateMap[r.id]=r.route_date})
+  const { data: allVisits } = await sb.from('visit_log')
+    .select('id,route_id,result,amount,notes,visited_at,customer(id,name,type,grade)')
+    .in('route_id', routeIds).order('visited_at', {ascending:false}).limit(500)
+  if (!allVisits?.length) {
+    c.innerHTML = '<div class="empty-state"><i class="ti ti-history"></i>近60天無拜訪記錄</div>'; return
+  }
+  const byDate = {}
+  allVisits.forEach(v => {
+    const date = routeDateMap[v.route_id]||v.visited_at?.slice(0,10)
+    if (!byDate[date]) byDate[date] = []
+    byDate[date].push(v)
+  })
+  const dates = Object.keys(byDate).sort((a,b)=>b.localeCompare(a))
+  let html = `<div style="font-size:12px;color:#aaa;margin-bottom:12px">近60天拜訪記錄（點卡片查看詳情）</div>`
+  dates.forEach(date => {
+    const dayVisits = byDate[date]
+    const closed = dayVisits.filter(v=>v.result==='成交')
+    const amt = closed.reduce((s,v)=>s+(v.amount||0),0)
+    html += `<div style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <span style="font-size:13px;font-weight:600">${date}</span>
+        <span style="font-size:11px;color:#aaa">${dayVisits.length} 家｜成交 ${closed.length} 家${amt?'｜NT$'+amt.toLocaleString():''}</span>
+      </div>
+      ${dayVisits.map((v,i) => `
+        <div class="card" style="border-left:3px solid ${v.result==='成交'?'#52B788':v.result==='待跟進'?'#EF9F27':'#ddd'};margin-bottom:6px;cursor:pointer"
+          onclick="this.querySelector('.hist-detail').style.display=this.querySelector('.hist-detail').style.display==='none'?'block':'none'">
+          <div class="card-top">
+            <div class="avatar ${avatarColors(i)}">${initials(v.customer?.name)}</div>
+            <div style="flex:1">
+              <div class="card-name">${v.customer?.name||'—'}</div>
+              <div class="card-sub">${v.customer?.type||''} · ${new Date(v.visited_at).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'})}</div>
+            </div>
+            <span class="badge ${v.result==='成交'?'b-success':v.result==='待跟進'?'b-warn':'b-gray'}">${v.result}</span>
+          </div>
+          <div class="hist-detail" style="display:none;margin-top:8px;padding-top:8px;border-top:0.5px solid #f0ede8">
+            ${v.amount?`<div style="font-size:13px;font-weight:500;color:#3B6D11;margin-bottom:4px"><i class="ti ti-currency-dollar"></i> NT$${v.amount.toLocaleString()}</div>`:''}
+            ${v.notes?`<div style="font-size:13px;color:#555"><i class="ti ti-notes" style="color:#aaa"></i> ${v.notes}</div>`:'<div style="font-size:12px;color:#aaa">無備註</div>'}
+          </div>
+        </div>`).join('')}
+    </div>`
+  })
+  c.innerHTML = html
+}
+
+window.renderManagerOverview = async function() {
   document.getElementById('top-title').textContent = '管理者後台'
   const c = document.getElementById('page-content')
   c.innerHTML = '<div class="loading"><div class="spinner"></div> 載入中</div>'
@@ -513,8 +760,20 @@ async function renderManagerOverview() {
     sb.from('address_change_log').select('*, customer(name), sales_rep(name)').eq('status','pending'),
     sb.from('visit_log').select('id,route_id,customer_id,notes,visited_at,customer(name),daily_route(route_date,rep_id)')
       .eq('result','待跟進').eq('follow_up_status','pending'),
-    sb.from('sales_order').select('customer_name,amount,year,month,day,order_date')
-      .eq('order_type','出貨').gt('amount',0).gte('order_date', day180ago),
+    // recentOrders 分6個月查詢避免 1000 筆限制
+    (async () => {
+      const now3 = new Date()
+      const months6 = []
+      for (let i=0;i<7;i++) {
+        const d = new Date(now3.getFullYear(), now3.getMonth()-i, 1)
+        months6.push({year:d.getFullYear(), month:d.getMonth()+1})
+      }
+      const results = await Promise.all(months6.map(({year,month}) =>
+        sb.from('sales_order').select('customer_name,amount,year,month,day,order_date')
+          .eq('order_type','出貨').gt('amount',0).eq('year',year).eq('month',month).limit(3000)
+      ))
+      return {data: results.flatMap(r=>r.data||[])}
+    })(),
     // 近180天有被拜訪過的 customer_id（只拿 id，限制筆數避免 timeout）
     sb.from('visit_log').select('customer_id').gte('visited_at', day180ago+'T00:00:00').limit(5000)
   ])
@@ -746,6 +1005,9 @@ async function renderManagerOverview() {
     { id:'tab-pending',  label:`待跟進 ${pendingFollowups?.length||0}` },
     { id:'tab-addr',     label:`地址審核 ${addrPending?.length||0}` },
     { id:'tab-data',     label:'資料管理' },
+    { id:'tab-km',       label:'里程審核' },
+    { id:'tab-calendar', label:'出勤月曆' },
+    { id:'tab-custmgr',  label:'客戶管理' },
   ]
 
   let html = `
@@ -764,7 +1026,7 @@ async function renderManagerOverview() {
     <div class="metric-card"><div class="mc-label">本月成交</div><div class="mc-val">${totalClosed}<span> 筆</span></div></div>
   </div>`
   html += statsArr.map((s,i) => `
-    <div class="card">
+    <div class="card" style="cursor:pointer" onclick="showRepDetail('${s.id}')">
       <div class="card-top">
         <div class="avatar ${avatarColors(i)}">${initials(s.name)}</div>
         <div style="flex:1">
@@ -874,7 +1136,131 @@ async function renderManagerOverview() {
   </div>`
 
   clearTimeout(_mgrTimeout)
+
+  // ── 里程審核 tab ──
+  const { data: kmPending } = await sb.from('daily_route')
+    .select('id,route_date,system_km,gmaps_km,approved_km,rep_id,sales_rep(name)')
+    .not('gmaps_km','is',null).is('approved_km',null)
+    .order('route_date',{ascending:false}).limit(50)
+  const kmNeedReview = (kmPending||[]).filter(r => {
+    if (!r.system_km||!r.gmaps_km) return false
+    return Math.abs(r.gmaps_km-r.system_km)/r.system_km > 0.10
+  })
+  html += `<div id="tab-km" style="display:none">
+    <div class="sec-label">待審核里程（差異 &gt;10%）共 ${kmNeedReview.length} 筆</div>
+    ${!kmNeedReview.length?'<div class="empty-state" style="padding:20px 0">無待審核里程</div>'
+      :kmNeedReview.map(r=>{
+        const diff = Math.round(Math.abs(r.gmaps_km-r.system_km)/r.system_km*100)
+        return `<div class="card">
+          <div class="card-top">
+            <div style="flex:1">
+              <div class="card-name">${r.sales_rep?.name||'—'} · ${r.route_date}</div>
+              <div class="card-sub">系統：${r.system_km}km｜業務回報：${r.gmaps_km}km｜差異 ${diff}%</div>
+            </div>
+            <span class="badge b-warn">差異${diff}%</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
+            <input type="number" id="km-approve-${r.id}" step="0.1" value="${r.gmaps_km}"
+              style="width:80px;padding:6px 10px;border:1px solid #ddd;border-radius:8px;font-size:14px;outline:none">
+            <span style="font-size:12px;color:#aaa">km</span>
+            <button onclick="approveKm('${r.id}')" class="btn-primary" style="font-size:13px;padding:8px">核准</button>
+            <button onclick="approveKm('${r.id}','system')" class="btn-outline" style="font-size:13px">用系統值</button>
+          </div>
+        </div>`
+      }).join('')}
+  </div>`
+
+  // ── 出勤月曆 tab（可切換月份）──
+  let calYear = new Date().getFullYear()
+  let calMonth = new Date().getMonth()+1
+  async function renderCalendar(yr, mo) {
+    const calStart = yr+'-'+String(mo).padStart(2,'0')+'-01'
+    const calEnd = new Date(yr, mo, 0).toISOString().slice(0,10)
+    const { data: calRoutes } = await sb.from('daily_route')
+      .select('route_date,rep_id,approved_km,gmaps_km,system_km,sales_rep(name)')
+      .gte('route_date', calStart).lte('route_date', calEnd)
+    const routeByDate = {}
+    ;(calRoutes||[]).forEach(r => {
+      if (!routeByDate[r.route_date]) routeByDate[r.route_date] = []
+      routeByDate[r.route_date].push(r)
+    })
+    const daysInMonth = new Date(yr, mo, 0).getDate()
+    const firstDay = new Date(yr, mo-1, 1).getDay()
+    let calHtml = `<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;text-align:center;font-size:11px;margin-bottom:6px">
+      ${['日','一','二','三','四','五','六'].map(d=>`<div style="color:#aaa;padding:4px">${d}</div>`).join('')}
+    </div><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px">`
+    for (let i=0;i<firstDay;i++) calHtml += '<div></div>'
+    for (let d=1;d<=daysInMonth;d++) {
+      const dateStr = yr+'-'+String(mo).padStart(2,'0')+'-'+String(d).padStart(2,'0')
+      const routes = routeByDate[dateStr]||[]
+      const repNames = routes.map(r=>r.sales_rep?.name?.slice(0,2)||'').join(' ')
+      const bg = routes.length>=3?'#D8F3DC':routes.length>=1?'#FEF3C7':'#f5f5f5'
+      calHtml += `<div style="background:${bg};border-radius:4px;padding:4px 2px;min-height:40px;cursor:pointer" onclick="showCalDay('${dateStr}')">
+        <div style="font-size:12px;font-weight:500">${d}</div>
+        <div style="font-size:9px;color:#555;line-height:1.3">${repNames}</div>
+      </div>`
+    }
+    calHtml += '</div>'
+    const calEl = document.getElementById('cal-grid')
+    const labelEl = document.getElementById('cal-label')
+    if (calEl) calEl.innerHTML = calHtml
+    if (labelEl) labelEl.textContent = yr+'年'+mo+'月出勤'
+    document.getElementById('cal-detail')?.setAttribute('innerHTML','')
+  }
+  window._calYear = calYear
+  window._calMonth = calMonth
+  window.calPrev = async () => {
+    window._calMonth--
+    if (window._calMonth < 1) { window._calMonth=12; window._calYear-- }
+    await renderCalendar(window._calYear, window._calMonth)
+  }
+  window.calNext = async () => {
+    window._calMonth++
+    if (window._calMonth > 12) { window._calMonth=1; window._calYear++ }
+    await renderCalendar(window._calYear, window._calMonth)
+  }
+
+  html += `<div id="tab-calendar" style="display:none">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <button onclick="calPrev()" style="border:1px solid #ddd;border-radius:6px;padding:4px 12px;background:#fff;cursor:pointer;font-size:16px">‹</button>
+      <div>
+        <div class="sec-label" style="margin:0;text-align:center" id="cal-label">${calYear}年${calMonth}月出勤</div>
+        <div style="font-size:10px;color:#aaa;text-align:center;margin-top:2px">綠=3人 黃=部分</div>
+      </div>
+      <button onclick="calNext()" style="border:1px solid #ddd;border-radius:6px;padding:4px 12px;background:#fff;cursor:pointer;font-size:16px">›</button>
+    </div>
+    <div id="cal-grid"></div>
+    <div id="cal-detail" style="margin-top:12px"></div>
+  </div>`
+
+  // ── 客戶管理 tab ──
+  html += `<div id="tab-custmgr" style="display:none">
+    <div class="sec-label">上傳客戶檔</div>
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-top">
+        <div style="flex:1">
+          <div class="card-name">客戶資料 (CU02)</div>
+          <div class="card-sub">上傳後自動同步客戶資料，並依近6個月銷售重新計算ABC等級</div>
+        </div>
+      </div>
+      <div style="margin-top:12px">
+        <button class="btn-primary" style="font-size:13px;width:100%;position:relative;overflow:hidden">
+          <i class="ti ti-upload"></i> 上傳客戶檔 (CU02.xls)
+          <input type="file" accept=".xlsx,.xls" style="position:absolute;inset:0;opacity:0;cursor:pointer" onchange="mgrUploadCustomers(this)">
+        </button>
+      </div>
+      <div id="mgr-cust-log" style="display:none;margin-top:8px;font-size:11px;color:#65655C;background:#f5f4f0;border-radius:6px;padding:8px;max-height:80px;overflow-y:auto;font-family:monospace"></div>
+    </div>
+    <div class="card" style="background:#f8f7f4">
+      <div style="font-size:12px;color:#65655C"><i class="ti ti-info-circle"></i> ABC 等級依近6個月月均：A &gt;10,000 · B 1,000~10,000 · C &lt;1,000</div>
+      <div id="abc-result" style="margin-top:6px;font-size:12px;color:#3B6D11"></div>
+    </div>
+  </div>`
+
   c.innerHTML = html
+
+  // 初始化月曆
+  setTimeout(() => renderCalendar(calYear, calMonth), 100)
 
   // Tab 切換函數
   window.mgrTab = (activeId) => {
@@ -1330,7 +1716,7 @@ window.openVisitModal = async () => {
 
   // 載入客戶清單（用自己負責的）
   if (!_visitCustomers.length) {
-    const q = sb.from('customer').select('id,name,type,grade').eq('is_active',true).order('name')
+    const q = sb.from('customer').select('id,name,type,grade').eq('is_active',true).order('grade').order('name')
     const filtered = currentRep ? q.eq('assigned_rep_id', currentRep.id) : q
     const { data } = await filtered
     _visitCustomers = data || []
@@ -1351,62 +1737,17 @@ window.openVisitModal = async () => {
 window.searchCustomers = (kw) => {
   const dd = document.getElementById('customer-dropdown')
   const kl = kw.trim().toLowerCase()
-
-  if (!kl) {
-    if (!_visitCustomers.length) { dd.style.display='none'; return }
-    const typeMap = {}
-    _visitCustomers.forEach(c => {
-      const t = c.type || '其他'
-      if (!typeMap[t]) typeMap[t] = {A:[],B:[],C:[],'未分級':[]}
-      const g = ['A','B','C'].includes(c.grade) ? c.grade : '未分級'
-      typeMap[t][g].push(c)
-    })
-    let html = ''
-    Object.keys(typeMap).sort().forEach((type, ti) => {
-      const grps = typeMap[type]
-      const total = Object.values(grps).reduce((s,a)=>s+a.length,0)
-      if (!total) return
-      const tid = 'ddtype_'+ti
-      // 預設全部收合
-      html += `<div style="padding:6px 12px;font-size:12px;font-weight:600;color:#1A472A;background:#f0f8f4;border-bottom:1px solid #e8f4ec;cursor:pointer;display:flex;justify-content:space-between;align-items:center" onclick="
-        var b=document.getElementById('${tid}');
-        var a=document.getElementById('${tid}_arr');
-        if(b.style.display==='none'){b.style.display='';a.textContent='▼'}else{b.style.display='none';a.textContent='▶'}
-      ">
-        <span>${type}（${total}）</span>
-        <span id="${tid}_arr">▶</span>
-      </div>
-      <div id="${tid}" style="display:none">`
-      ;['A','B','C','未分級'].forEach(grade => {
-        const list = grps[grade]
-        if (!list.length) return
-        html += `<div style="padding:3px 12px 1px 16px;font-size:10px;color:#aaa;background:#fafafa">${grade} 級（${list.length}）</div>`
-        list.forEach(c => {
-          const safeName = c.name.replace(/'/g,"\'")
-          const gradeColor = c.grade==='A'?'#C8A93B':c.grade==='B'?'#2C6FAC':'#888'
-          const gradeBg = c.grade==='A'?'#FDF6DC':c.grade==='B'?'#E8F1FA':'#F0F0F0'
-          html += `<div class="dropdown-item" style="padding:8px 12px 8px 24px" onclick="selectCustomer('${c.id}','${safeName}')">
-            ${c.name}<span style="font-size:10px;font-weight:700;color:${gradeColor};background:${gradeBg};border-radius:3px;padding:1px 4px;margin-left:5px">${c.grade||''}</span>
-          </div>`
-        })
-      })
-      html += `</div>`
-    })
-    dd.innerHTML = html || '<div style="padding:10px 12px;color:#aaa;font-size:13px">無客戶資料</div>'
-    dd.style.display = 'block'
-    return
-  }
-
-  const hits = _visitCustomers.filter(c => c.name.toLowerCase().includes(kl)).slice(0,20)
+  if (!kl) { dd.style.display='none'; return }
+  const hits = _visitCustomers.filter(c => c.name.toLowerCase().includes(kl)).slice(0,10)
   if (!hits.length) { dd.style.display='none'; return }
-  dd.innerHTML = hits.map(c => {
-    const safeName = c.name.replace(/'/g,"\'")
-    return `<div class="dropdown-item" onclick="selectCustomer('${c.id}','${safeName}')">
-      ${c.name}<span style="font-size:10px;color:#999;margin-left:6px">${c.type||''} ${c.grade||''}</span>
+  dd.innerHTML = hits.map(c =>
+    `<div class="dropdown-item" onclick="selectCustomer('${c.id}','${c.name.replace(/'/g,"\'")}')">
+      ${c.name}<span style="font-size:10px;color:#999;margin-left:6px">${c.grade||''}</span>
     </div>`
-  }).join('')
+  ).join('')
   dd.style.display = 'block'
 }
+
 window.selectCustomer = (id, name) => {
   document.getElementById('visit-customer-id').value = id
   document.getElementById('visit-customer-search').value = ''
@@ -1703,76 +2044,6 @@ window.submitKm = async (sysKm) => {
   if (needsReview) {
     alert(`里程差異 ${Math.round(diffPct*100)}%（超過15%），已送出待管理者審核`)
   }
-}
-
-// ── 拜訪歷史 ──
-async function renderHistory() {
-  const c = document.getElementById('page-content')
-  c.innerHTML = '<div class="loading"><div class="spinner"></div> 載入中</div>'
-  if (!currentRep) return
-
-  const day60ago = new Date(Date.now()-60*86400000).toISOString().slice(0,10)
-  const { data: routes } = await sb.from('daily_route')
-    .select('id,route_date')
-    .eq('rep_id', currentRep.id)
-    .gte('route_date', day60ago)
-    .order('route_date', {ascending:false})
-
-  if (!routes?.length) {
-    c.innerHTML = '<div class="empty-state"><i class="ti ti-history"></i>近60天無拜訪記錄</div>'
-    return
-  }
-
-  const routeIds = routes.map(r=>r.id)
-  const routeDateMap = {}
-  routes.forEach(r => { routeDateMap[r.id] = r.route_date })
-
-  const { data: allVisits } = await sb.from('visit_log')
-    .select('*, customer(id,name,type,grade)')
-    .in('route_id', routeIds)
-    .order('visited_at', {ascending:false})
-    .limit(500)
-
-  if (!allVisits?.length) {
-    c.innerHTML = '<div class="empty-state"><i class="ti ti-history"></i>近60天無拜訪記錄</div>'
-    return
-  }
-
-  const byDate = {}
-  allVisits.forEach(v => {
-    const date = routeDateMap[v.route_id] || v.visited_at?.slice(0,10)
-    if (!byDate[date]) byDate[date] = []
-    byDate[date].push(v)
-  })
-
-  const dates = Object.keys(byDate).sort((a,b)=>b.localeCompare(a))
-
-  let html = `<div style="font-size:12px;color:#aaa;margin-bottom:12px">近60天拜訪記錄</div>`
-  dates.forEach(date => {
-    const dayVisits = byDate[date]
-    const closed = dayVisits.filter(v=>v.result==='成交')
-    const amt = closed.reduce((s,v)=>s+(v.amount||0),0)
-    html += `<div style="margin-bottom:16px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-        <span style="font-size:13px;font-weight:600">${date}</span>
-        <span style="font-size:11px;color:#aaa">${dayVisits.length} 家｜成交 ${closed.length} 家${amt?'｜NT$'+amt.toLocaleString():''}</span>
-      </div>
-      ${dayVisits.map((v,i) => `
-        <div class="card" style="border-left:3px solid ${v.result==='成交'?'#52B788':v.result==='待跟進'?'#EF9F27':'#ddd'};margin-bottom:6px">
-          <div class="card-top">
-            <div class="avatar ${avatarColors(i)}">${initials(v.customer?.name)}</div>
-            <div style="flex:1">
-              <div class="card-name">${v.customer?.name||'—'}</div>
-              <div class="card-sub">${v.customer?.type||''} · ${new Date(v.visited_at).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'})}</div>
-            </div>
-            <span class="badge ${v.result==='成交'?'b-success':v.result==='待跟進'?'b-warn':'b-gray'}">${v.result}</span>
-          </div>
-          ${v.amount?`<div class="card-meta"><span><i class="ti ti-currency-dollar"></i>NT$${v.amount.toLocaleString()}</span></div>`:''}
-          ${v.notes?`<div class="card-meta"><span><i class="ti ti-notes"></i>${v.notes}</span></div>`:''}
-        </div>`).join('')}
-    </div>`
-  })
-  c.innerHTML = html
 }
 
 document.getElementById('login-password').addEventListener('keydown', e => {
