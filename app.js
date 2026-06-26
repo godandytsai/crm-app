@@ -90,9 +90,18 @@ window.switchPage = (page) => {
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'))
   const nav = document.getElementById('nav-'+page)
   if (nav) nav.classList.add('active')
-  const titles = {today:'今日拜訪',customers:'我的客戶',pending:'待辦清單',stats:'我的數字'}
-  document.getElementById('top-title').textContent = titles[page]||''
+  const titleEl = document.getElementById('top-title')
+  const pageTitles = {customers:'我的客戶',pending:'待辦清單',stats:'我的數字',history:'拜訪歷史'}
+  if (page === 'today') {
+    const now = new Date()
+    const dateStr = (now.getMonth()+1) + '月' + now.getDate() + '日'
+    const name = currentRep?.name || ''
+    titleEl.innerHTML = `<span style="font-weight:400;font-size:12px;color:#65655C">${dateStr}</span>&nbsp;&nbsp;<span style="font-weight:600">您好，${name}</span>`
+  } else {
+    titleEl.textContent = pageTitles[page] || page
+  }
   if (page==='today') renderToday()
+  if (page==='history') renderHistory()
   if (page==='customers') renderCustomers()
   if (page==='pending') renderPending()
   if (page==='stats') renderStats()
