@@ -128,6 +128,7 @@ async function renderToday() {
         .eq('route_id', todayRoute.id).order('visit_order')
     : { data: [] }
 
+  window._todayVisits = visits || []
   const closed = (visits||[]).filter(v => v.result==='成交')
   const totalAmt = closed.reduce((s,v) => s+(v.amount||0), 0)
   const sysKm = todayRoute?.system_km || 0
@@ -163,10 +164,10 @@ async function renderToday() {
             ${v.notes?`<span><i class="ti ti-notes"></i>${v.notes.slice(0,20)}${v.notes.length>20?'...':''}</span>`:''}
           </div>
           <div style="display:flex;gap:8px;margin-top:8px;justify-content:flex-end">
-            <button class="btn-ghost" style="font-size:12px;padding:4px 10px" onclick="openEditVisitModal('${v.id}','${(v.customer?.name||'').replace(/'/g,"\'")}','${v.result}',${v.amount||0},'${(v.notes||'').replace(/'/g,"\'")}')">
+            <button class="btn-ghost" style="font-size:12px;padding:6px 12px;min-height:36px" onclick="event.stopPropagation();openEditVisitModalById('${v.id}')">
               <i class="ti ti-edit"></i> 編輯
             </button>
-            <button class="btn-ghost" style="font-size:12px;padding:4px 10px;color:var(--rd)" onclick="deleteVisit('${v.id}')">
+            <button class="btn-ghost" style="font-size:12px;padding:6px 12px;min-height:36px;min-width:60px;color:var(--rd)" onclick="event.stopPropagation();deleteVisit('${v.id}')">
               <i class="ti ti-trash"></i> 刪除
             </button>
           </div>
@@ -186,8 +187,8 @@ window.renderCustomers = async function() {
   const day90ago = new Date(Date.now()-90*86400000).toISOString().slice(0,10)
   const custIds = customers.map(cu=>cu.id)
   const { data: recentVisits } = await sb.from('visit_log')
-    .select('customer_id,visited_at').in('customer_id', custIds.slice(0,200))
-    .gte('visited_at', day90ago+'T00:00:00').order('visited_at',{ascending:false})
+    .select('customer_id,visited_at')
+    .gte('visited_at', day90ago+'T00:00:00').order('visited_at',{ascending:false}).limit(3000)
   const lastVisitMap = {}
   ;(recentVisits||[]).forEach(v => { if (!lastVisitMap[v.customer_id]) lastVisitMap[v.customer_id] = v.visited_at?.slice(0,10) })
 
@@ -416,21 +417,26 @@ async function renderStats() {
   const totalAmt = (orders||[]).reduce((s,o)=>s+o.amount,0)
   const totalKm = (routes||[]).reduce((s,r)=>s+(r.approved_km||r.gmaps_km||r.system_km||0),0)
 
-  // 月別業績（近6個月）
-  const day180ago = new Date(Date.now()-180*86400000).toISOString().slice(0,10)
-  const { data: histOrders } = await sb.from('sales_order')
-    .select('amount,year,month')
-    .eq('sales_rep', currentRep.name)
-    .eq('order_type','出貨')
-    .gt('amount',0)
-    .gte('order_date', day180ago)
-    .limit(5000)
-
+  // 月別業績（近6個月）- 分月並行查詢，避免 1000 筆截斷
+  const now2 = new Date()
+  const months6s = []
+  for (let i = 0; i < 6; i++) {
+    const d = new Date(now2.getFullYear(), now2.getMonth() - i, 1)
+    months6s.push({ year: d.getFullYear(), month: d.getMonth() + 1 })
+  }
   const byMonth = {}
-  ;(histOrders||[]).forEach(o => {
-    const ym = String(o.year)+'-'+String(o.month).padStart(2,'0')
-    byMonth[ym] = (byMonth[ym]||0) + o.amount
-  })
+  await Promise.all(months6s.map(async ({year, month}) => {
+    const { data } = await sb.from('sales_order')
+      .select('amount')
+      .eq('sales_rep', currentRep.name)
+      .eq('order_type', '出貨')
+      .eq('year', year)
+      .eq('month', month)
+      .gt('amount', 0)
+      .limit(2000)
+    const ym = String(year)+'-'+String(month).padStart(2,'0')
+    byMonth[ym] = (data||[]).reduce((s,o)=>s+o.amount, 0)
+  }))
 
   const amtTarget = quota?.amount_target || 0
   const amtPct = amtTarget > 0 ? Math.min(Math.round(totalAmt/amtTarget*100),100) : null
@@ -461,7 +467,7 @@ async function renderStats() {
       </div>
     </div>`:''}
     <div class="metric-row">
-      <div class="metric-card"><div class="mc-label">累計里程</div><div class="mc-val">${Math.round(totalKm)}<span> km</span></div><div class="mc-sub">油資 NT$${Math.round(totalKm*4)}</div></div>
+      <div class="metric-card"><div class="mc-label">累計里程</div><div class="mc-val">${Math.round(totalKm*10)/10}<span> km</span></div><div class="mc-sub">油資 NT$${Math.round(totalKm*4).toLocaleString()}</div></div>
       <div class="metric-card"><div class="mc-label">里程補貼</div><div class="mc-val" style="font-size:16px">NT$${Math.round(totalKm*4).toLocaleString()}</div></div>
     </div>
     <div class="sec-label">近6個月業績</div>
@@ -1213,7 +1219,7 @@ window.renderManagerOverview = async function() {
     const labelEl = document.getElementById('cal-label')
     if (calEl) calEl.innerHTML = calHtml
     if (labelEl) labelEl.textContent = yr+'年'+mo+'月出勤'
-    document.getElementById('cal-detail')?.setAttribute('innerHTML','')
+    const detEl = document.getElementById('cal-detail'); if (detEl) detEl.innerHTML = ''
   }
   window._calYear = calYear
   window._calMonth = calMonth
@@ -1685,6 +1691,8 @@ window.mgrUploadSales = async (inp) => {
     localStorage.removeItem('sd_sb_date')
   } catch(e) {}
   inp.value=''
+  addLog('正在重新計算 ABC 等級...')
+  try { const r = await recalcABC(); addLog(r) } catch(e) { addLog('⚠ ABC計算失敗') }
   renderManagerOverview()
 }
 
@@ -1724,7 +1732,7 @@ window.openVisitModal = async () => {
 
   // 載入客戶清單（用自己負責的）
   if (!_visitCustomers.length) {
-    const q = sb.from('customer').select('id,name,type,grade').eq('is_active',true).order('grade').order('name')
+    const q = sb.from('customer').select('id,name,type,grade').eq('is_active',true).order('name')
     const filtered = currentRep ? q.eq('assigned_rep_id', currentRep.id) : q
     const { data } = await filtered
     _visitCustomers = data || []
@@ -1745,15 +1753,58 @@ window.openVisitModal = async () => {
 window.searchCustomers = (kw) => {
   const dd = document.getElementById('customer-dropdown')
   const kl = kw.trim().toLowerCase()
-  if (!kl) { dd.style.display='none'; return }
-  const hits = _visitCustomers.filter(c => c.name.toLowerCase().includes(kl)).slice(0,10)
+
+  // 空關鍵字：顯示通路→ABC 分層（點標題展開/收合）
+  if (!kl) {
+    if (!_visitCustomers.length) { dd.style.display='none'; return }
+    const typeMap = {}
+    _visitCustomers.forEach(cu => {
+      const t = cu.type || '其他'
+      if (!typeMap[t]) typeMap[t] = {A:[],B:[],C:[],'未分級':[]}
+      const g = ['A','B','C'].includes(cu.grade) ? cu.grade : '未分級'
+      typeMap[t][g].push(cu)
+    })
+    let html = ''
+    Object.keys(typeMap).sort().forEach((type, ti) => {
+      const grps = typeMap[type]
+      const total = Object.values(grps).reduce((s,a)=>s+a.length,0)
+      if (!total) return
+      const tid = 'ddtype_'+ti
+      html += `<div style="padding:8px 12px;font-size:12px;font-weight:600;color:#1A472A;background:#f0f8f4;border-bottom:1px solid #e8f4ec;cursor:pointer;display:flex;justify-content:space-between;align-items:center" onclick="event.stopPropagation();var b=document.getElementById('${tid}');var a=document.getElementById('${tid}_arr');if(b.style.display==='none'){b.style.display='';a.textContent='▼'}else{b.style.display='none';a.textContent='▶'}">
+        <span>${type}（${total}）</span><span id="${tid}_arr">▶</span>
+      </div>
+      <div id="${tid}" style="display:none">`
+      ;['A','B','C','未分級'].forEach(grade => {
+        const list = grps[grade]
+        if (!list.length) return
+        html += `<div style="padding:3px 12px 1px 16px;font-size:10px;color:#aaa;background:#fafafa">${grade} 級（${list.length}）</div>`
+        list.forEach(cu => {
+          const gc = cu.grade==='A'?'#C8A93B':cu.grade==='B'?'#2C6FAC':'#888'
+          const gb = cu.grade==='A'?'#FDF6DC':cu.grade==='B'?'#E8F1FA':'#F0F0F0'
+          html += `<div class="dropdown-item" style="padding:8px 12px 8px 24px" onclick="selectCustomerById('${cu.id}')">
+            ${cu.name}${cu.grade?`<span style="font-size:10px;font-weight:700;color:${gc};background:${gb};border-radius:3px;padding:1px 4px;margin-left:5px">${cu.grade}</span>`:''}
+          </div>`
+        })
+      })
+      html += `</div>`
+    })
+    dd.innerHTML = html || '<div style="padding:10px 12px;color:#aaa;font-size:13px">無客戶資料</div>'
+    dd.style.display = 'block'
+    return
+  }
+
+  // 有關鍵字：直接搜尋
+  const hits = _visitCustomers.filter(cu => cu.name.toLowerCase().includes(kl)).slice(0,20)
   if (!hits.length) { dd.style.display='none'; return }
-  dd.innerHTML = hits.map(c =>
-    `<div class="dropdown-item" onclick="selectCustomer('${c.id}','${c.name.replace(/'/g,"\'")}')">
-      ${c.name}<span style="font-size:10px;color:#999;margin-left:6px">${c.grade||''}</span>
-    </div>`
-  ).join('')
+  dd.innerHTML = hits.map(cu => `<div class="dropdown-item" onclick="selectCustomerById('${cu.id}')">
+      ${cu.name}<span style="font-size:10px;color:#999;margin-left:6px">${cu.type||''} ${cu.grade||''}</span>
+    </div>`).join('')
   dd.style.display = 'block'
+}
+
+window.selectCustomerById = (id) => {
+  const cu = (_visitCustomers||[]).find(x => x.id === id)
+  if (cu) window.selectCustomer(cu.id, cu.name)
 }
 
 window.selectCustomer = (id, name) => {
@@ -1840,6 +1891,12 @@ window.openEditVisitModal = (id, custName, result, amount, notes) => {
       document.getElementById('amount-group').style.display = result==='成交' ? '' : 'none'
     }
   })
+}
+
+window.openEditVisitModalById = (id) => {
+  const v = (window._todayVisits||[]).find(x => x.id === id)
+  if (!v) return
+  window.openEditVisitModal(id, v.customer?.name||'', v.result, v.amount||0, v.notes||'')
 }
 
 window.deleteVisit = async (id) => {
@@ -2013,7 +2070,7 @@ window.openReportKmModal = (sysKm, orderedVisits, legs) => {
         <label style="font-size:12px;color:#65655C;display:block;margin-bottom:4px">您的實際里程（km）</label>
         <input id="km-input" type="number" step="0.1" value="${sysKm}"
           style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:16px;outline:none">
-        <div style="font-size:11px;color:#aaa;margin-top:4px">與系統計算差異 &gt; 15% 需管理者審核</div>
+        <div style="font-size:11px;color:#aaa;margin-top:4px">與系統計算差異 &gt; 10% 需管理者審核</div>
       </div>
       <div style="display:flex;gap:10px">
         <button onclick="document.getElementById('modal-km').remove()"
@@ -2030,12 +2087,12 @@ window.openReportKmModal = (sysKm, orderedVisits, legs) => {
 window.submitKm = async (sysKm) => {
   const gmapsKm = parseFloat(document.getElementById('km-input').value) || sysKm
   const diffPct = sysKm > 0 ? Math.abs(gmapsKm - sysKm) / sysKm : 0
-  const needsReview = diffPct > 0.15
+  const needsReview = diffPct > 0.10
 
   // 更新 daily_route
   const updateData = { gmaps_km: gmapsKm }
   if (!needsReview) {
-    // 差異小於 15%，直接用業務回報的
+    // 差異 ≤10%，直接核准業務回報值
     updateData.approved_km = gmapsKm
   }
   await sb.from('daily_route').update(updateData).eq('id', todayRoute.id)
@@ -2050,7 +2107,7 @@ window.submitKm = async (sysKm) => {
     : `業務回報 ${gmapsKm}km｜已確認`
 
   if (needsReview) {
-    alert(`里程差異 ${Math.round(diffPct*100)}%（超過15%），已送出待管理者審核`)
+    alert(`里程差異 ${Math.round(diffPct*100)}%（超過10%），已送出待管理者審核`)
   }
 }
 
