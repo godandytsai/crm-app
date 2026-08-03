@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { parseSalesWS, uploadSalesToSupabase, getDateRange } from './upload.js'
 
 const SUPABASE_URL = 'https://trxmfvosyfnlidmyelzs.supabase.co'
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRyeG1mdm9zeWZubGlkbXllbHpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgyMTU5NDUsImV4cCI6MjA5Mzc5MTk0NX0.auFOS6ZtcmhsXMWBctFtRr-KnKmGDh4E5jhnk79Vbx0'
@@ -1627,66 +1628,51 @@ window.mgrUploadSales = async (inp) => {
     })
   }
 
-  const parsed = await new Promise(res => {
+  const ws = await new Promise((res, rej) => {
     const fr = new FileReader()
     fr.onload = e => {
       const wb = XLSX.read(e.target.result, {type:'binary',raw:false})
       const sn = wb.SheetNames.find(n => n.includes('銷售') || n==='銷售')
-      if (!sn) { addLog('⚠ 找不到銷售工作表'); res([]); return }
-      const data = XLSX.utils.sheet_to_json(wb.Sheets[sn], {defval:null,raw:false})
-      res(data)
+      if (!sn) { rej(new Error('找不到銷售工作表')); return }
+      res(wb.Sheets[sn])
     }
     fr.readAsBinaryString(file)
-  })
+  }).catch(e => { addLog('⚠ ' + e.message); return null })
+  if (!ws) { inp.value=''; return }
 
-  if (!parsed.length) { addLog('⚠ 無資料'); inp.value=''; return }
-  addLog('解析完成：' + parsed.length + ' 筆，上傳中...')
+  // ★ 改用 upload.js 共用的 parseSalesWS，跟儀表板/admin用同一套解析邏輯，
+  //   避免這裡自己重寫一份、跟其他地方的邏輯慢慢兜不起來。
+  const rows = parseSalesWS(ws, XLSX)
+  if (!rows.length) { addLog('⚠ 無資料'); inp.value=''; return }
+  addLog('解析完成：' + rows.length + ' 筆')
 
-  // 簡單 mapping（欄位對應 sales_order）
-  const CH_REMAP = {'嬰兒房':'嬰藥','藥局':'嬰藥','藥局/嬰兒房':'嬰藥','機關福利社':'嬰藥','安養院':'安養&醫材','醫院':'安養&醫材','醫院/安養院':'安養&醫材','醫療器材行':'安養&醫材','盤商':'盤商(經銷商)','經銷商':'盤商(經銷商)'}
-  const seenCtr = {}
-  const rows = parsed.map(r => {
-    const dateStr = String(r['日期']||'').trim()
-    const parts = dateStr.split('/')
-    if (parts.length!==3) return null
-    const y=parseInt(parts[0])+1911, mo=parseInt(parts[1]), day=parseInt(parts[2])
-    const t = String(r['單別']||'').trim()
-    const orderNo = String(r['出貨單號']||'').trim()
-    let seq
-    if (r['序號']!=null&&r['序號']!=='') seq=String(Math.round(parseFloat(r['序號'])||0))
-    else { const ck=t+'_'+orderNo; seenCtr[ck]=(seenCtr[ck]||0)+1; seq=String(seenCtr[ck]) }
-    const rawCh = String(r['客戶分類']||'').trim()
-    const rawReg = String(r['區域分類']||'').trim()
-    const ch = CH_REMAP[rawCh]||(rawCh.includes('網')||rawCh.includes('電商')?'網路':rawCh)
-    const PE_MAP = {'網路通路-1區':'雅蘋','網路通路-2區':'張蓒'}
-    const pe = PE_MAP[rawReg]||String(r['業務姓名']||'').trim()
-    return {
-      id: t+'_'+orderNo+'_'+seq, order_type:t,
-      year:y, month:mo, day:day,
-      order_date: y+'-'+String(mo).padStart(2,'0')+'-'+String(day).padStart(2,'0'),
-      sales_rep:pe, amount:parseFloat(String(r['未稅金額']||'0').replace(/,/g,''))||0,
-      series:String(r['系列']||'').trim(), category:String(r['分類']||'').trim(),
-      material:String(r['材質']||'').trim(), raw_material:String(r['材質']||'').trim(),
-      channel:ch, raw_channel:rawCh, region:rawReg,
-      quantity:parseFloat(String(r['數量']||'0').replace(/,/g,''))||0,
-      customer_name:String(r['客戶全稱']||'').trim()||null
-    }
-  }).filter(Boolean)
+  // 這次要刷新的完整區間，取檔案本身涵蓋的最早~最晚日期。
+  // 前提：這裡上傳的檔案本身就要是「完整」的期間匯出（例如整季），
+  // 這樣 min/max 才會等於你真正想刷新的範圍。
+  const { minDate, maxDate } = getDateRange(rows)
+  if (!minDate || !maxDate) { addLog('⚠ 無法判斷檔案日期範圍'); inp.value=''; return }
+  if (!confirm(`即將刪除並重建 ${minDate} ~ ${maxDate} 這段期間的銷售資料，共 ${rows.length} 筆。確定要繼續嗎？`)) {
+    addLog('已取消'); inp.value=''; return
+  }
+  addLog('上傳中...')
 
-  // 分批 upsert
-  const CHUNK=200; let done=0, errors=0
-  for (let i=0; i<rows.length; i+=CHUNK) {
-    const batch = rows.slice(i,i+CHUNK)
-    const { error } = await sb.from('sales_order').upsert(batch, {onConflict:'id'})
-    if (error) { errors+=batch.length; addLog('⚠ 批次'+(i)+': '+error.message.slice(0,80)) }
-    else done+=batch.length
-    document.getElementById('mgr-upload-log').textContent = document.getElementById('mgr-upload-log').textContent.replace(/上傳中.*/, '上傳中... '+done+'/'+rows.length)
+  try {
+    const result = await uploadSalesToSupabase(sb, rows, minDate, maxDate, (done, total, stage, msg) => {
+      if (stage === 'warning') { addLog('⚠ ' + msg); return }
+      const label = stage === 'deleting' ? msg : `上傳中... ${done}/${total}`
+      document.getElementById('mgr-upload-log').textContent =
+        document.getElementById('mgr-upload-log').textContent.replace(/(刪除.*|上傳中.*)$/m, label)
+    })
+    addLog(`✅ 上傳完成：${result.inserted} 筆（已重建 ${result.targetRangeStart} ~ ${result.targetRangeEnd}）`)
+  } catch (e) {
+    addLog('⚠ 上傳失敗：' + e.message)
+    inp.value = ''
+    return
   }
 
-  addLog(errors===0 ? '✅ 上傳完成：'+done+' 筆' : '⚠ 完成：成功'+done+'，失敗'+errors)
   try {
     const sm = JSON.parse(localStorage.getItem('sd_smeta')||'{}')
-    sm[file.name] = {rows:done, date:new Date().toLocaleDateString('zh-TW')}
+    sm[file.name] = {rows: rows.length, date: new Date().toLocaleDateString('zh-TW')}
     localStorage.setItem('sd_smeta', JSON.stringify(sm))
     localStorage.removeItem('sd_sb_date')
   } catch(e) {}
