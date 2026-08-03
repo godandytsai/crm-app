@@ -103,7 +103,7 @@ export function parseSalesWS(ws, XLSX) {
   return rows
 }
 
-// ── 取得資料中的日期範圍 ──────────────────────────────────────
+// ── 取得資料中的日期範圍（僅供上傳前預覽/警示用，不再拿來當刪除依據）──
 export function getDateRange(rows) {
   let minDate = null, maxDate = null
   for (const r of rows) {
@@ -115,7 +115,36 @@ export function getDateRange(rows) {
   return { minDate, maxDate }
 }
 
+// ── 上傳前的守門檢查：確認目前連線身分具備 manager/admin 權限 ────
+// 這一步是提早攔截、給清楚的錯誤訊息用，讓使用者在上傳一開始就知道
+// 要先登入，不用等批次跑到一半才被 deleteSalesByDateRange 的驗證擋下。
+// 兩層防護疊在一起：這裡攔一次，deleteSalesByDateRange 裡的 count
+// 驗證再攔一次，就算這裡漏放/漏呼叫，count 驗證仍然會擋下沒清乾淨的情況。
+export async function ensureUploaderIsAuthorized(sb) {
+  const { data: { session }, error: sessionError } = await sb.auth.getSession()
+  if (sessionError) throw sessionError
+  if (!session) {
+    throw new Error('尚未登入。上傳銷售資料需要先用具備 manager/admin 角色的帳號登入（so_delete 政策要求），否則舊資料無法被正確清除、會產生孤兒資料。')
+  }
+  const { data: rep, error: repError } = await sb
+    .from('sales_rep')
+    .select('role')
+    .eq('auth_user_id', session.user.id)
+    .maybeSingle()
+  if (repError) throw repError
+  if (!rep || !['manager', 'admin'].includes(rep.role)) {
+    throw new Error(`目前登入帳號的角色是「${rep?.role || '未設定'}」，沒有 manager/admin 權限，無法執行上傳（上傳會需要刪除該日期區間的舊資料）。`)
+  }
+  return session
+}
+
 // ── 刪除指定日期範圍的資料 ───────────────────────────────────
+// ★ 修正重點：RLS政策擋下的DELETE不會回傳error，.delete()看起來
+//   「執行成功」但實際上可能一列都沒刪掉（例如 so_delete 政策要求
+//   manager/admin身分，但呼叫端用anon key沒登入，這時後端就是靜默地
+//   刪除0筆）。所以刪除之後一定要再查一次這個範圍還剩幾筆，剩下的
+//   一律視為失敗，直接丟出錯誤、不准繼續往下insert——寧可上傳中斷，
+//   也不要讓新資料疊加在清不掉的舊資料上面，變成孤兒資料。
 export async function deleteSalesByDateRange(sb, minDate, maxDate) {
   const { error } = await sb
     .from('sales_order')
@@ -123,6 +152,22 @@ export async function deleteSalesByDateRange(sb, minDate, maxDate) {
     .gte('order_date', minDate)
     .lte('order_date', maxDate)
   if (error) throw error
+
+  const { count, error: countError } = await sb
+    .from('sales_order')
+    .select('id', { count: 'exact', head: true })
+    .gte('order_date', minDate)
+    .lte('order_date', maxDate)
+  if (countError) throw countError
+
+  if (count && count > 0) {
+    throw new Error(
+      `刪除失敗：${minDate} ~ ${maxDate} 範圍內還殘留 ${count} 筆舊資料，沒有被清除。` +
+      `最可能的原因是目前連線身分沒有 DELETE 權限（so_delete 政策要求 manager/admin 角色），` +
+      `而 Supabase 對於被 RLS 擋下的刪除不會回傳錯誤，所以只能用這個方式抓出來。` +
+      `請確認已用具備 manager/admin 角色的帳號登入後再重新上傳，本次上傳已中止、未寫入任何新資料。`
+    )
+  }
 }
 
 // ── 清除某年月的資料（手動清除用）────────────────────────────
@@ -134,21 +179,51 @@ export async function deleteSalesByMonth(sb, year, month) {
   if (error) throw error
 }
 
-// ── 上傳到 Supabase（先清除日期範圍，再插入）────────────────
+// ── 上傳到 Supabase（先清除「呼叫端明確指定的完整日期區間」，再插入）──
+// ★ 修正重點：刪除範圍不再從檔案內容（rows）反推 min/max，而是由呼叫端
+//   明確傳入 targetRangeStart / targetRangeEnd（例如整季的 4/1 ~ 6/30）。
+//   原本用 getDateRange(rows) 反推的做法有兩個漏洞：
+//     1) 分月/分段上傳時，範圍只涵蓋這次檔案有的資料，範圍外的舊資料
+//        （例如訂單日期被改到範圍外、或改期前的舊紀錄）永遠不會被清掉，
+//        變成孤兒資料一直留在 Supabase 裡、跟新資料並存。
+//     2) 就算整季上傳，只要季度頭尾剛好有一天完全沒出貨，min/max 也會
+//        往內縮，縮進去的那一天如果 Supabase 裡有舊資料，一樣清不到。
+//   現在強制呼叫端明確指定「這次要刷新的完整區間」，不管檔案裡實際
+//   有沒有涵蓋到區間頭尾，都會整段刪除重建，孤兒資料無所遁形。
 // onProgress(done, total, stage, msg)
 // stage: 'deleting' | 'uploading'
-export async function uploadSalesToSupabase(sb, rows, onProgress) {
+export async function uploadSalesToSupabase(sb, rows, targetRangeStart, targetRangeEnd, onProgress) {
   const BATCH = 500
 
-  // 1. 偵測檔案中的日期範圍
+  // 0. 上傳前先確認身分具備 manager/admin 權限，才有辦法清除舊資料
+  await ensureUploaderIsAuthorized(sb)
+
+  if (!targetRangeStart || !targetRangeEnd) {
+    throw new Error('必須明確指定要刪除重建的日期區間（targetRangeStart / targetRangeEnd），不可省略。例如整季上傳要傳 2026-04-01 ~ 2026-06-30，不能讓程式自己從檔案內容去猜。')
+  }
+  if (targetRangeStart > targetRangeEnd) {
+    throw new Error(`日期區間錯誤：起始日期 ${targetRangeStart} 晚於結束日期 ${targetRangeEnd}`)
+  }
+
+  // 檢查：檔案裡的資料如果超出指定的刪除區間，就地攔下來提醒使用者
+  // （這種狀況代表要嘛區間設錯了，要嘛檔案帶了不該在這次範圍內的資料）
   const { minDate, maxDate } = getDateRange(rows)
-  if (!minDate || !maxDate) throw new Error('無法取得日期範圍')
+  const warnings = []
+  if (minDate && minDate < targetRangeStart) {
+    warnings.push(`檔案內有早於指定區間的資料（最早 ${minDate}，指定區間從 ${targetRangeStart} 開始），這些資料不會被正確覆蓋，請確認區間設定`)
+  }
+  if (maxDate && maxDate > targetRangeEnd) {
+    warnings.push(`檔案內有晚於指定區間的資料（最晚 ${maxDate}，指定區間到 ${targetRangeEnd} 結束），這些資料不會被正確覆蓋，請確認區間設定`)
+  }
+  if (warnings.length && onProgress) {
+    warnings.forEach(w => onProgress(0, rows.length, 'warning', w))
+  }
 
-  // 2. 刪除 Supabase 中該日期範圍的舊資料
-  if (onProgress) onProgress(0, rows.length, 'deleting', `刪除 ${minDate} ~ ${maxDate} 舊資料...`)
-  await deleteSalesByDateRange(sb, minDate, maxDate)
+  // 1. 刪除 Supabase 中「指定區間」的舊資料（不是檔案裡有資料的區間，是指定的完整區間）
+  if (onProgress) onProgress(0, rows.length, 'deleting', `刪除 ${targetRangeStart} ~ ${targetRangeEnd} 舊資料...`)
+  await deleteSalesByDateRange(sb, targetRangeStart, targetRangeEnd)
 
-  // 3. 批次插入新資料
+  // 2. 批次插入新資料
   let done = 0
   const total = rows.length
   for (let i = 0; i < rows.length; i += BATCH) {
@@ -159,7 +234,7 @@ export async function uploadSalesToSupabase(sb, rows, onProgress) {
     if (onProgress) onProgress(done, total, 'uploading', `上傳中 ${done}/${total} 筆`)
   }
 
-  return { inserted: total, minDate, maxDate }
+  return { inserted: total, targetRangeStart, targetRangeEnd, warnings }
 }
 
 // ── 查詢已上傳的資料範圍 ──────────────────────────────────────
