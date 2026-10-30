@@ -103,6 +103,28 @@ export function parseSalesWS(ws, XLSX) {
   return rows
 }
 
+// ── 去除重複 id（同一檔案內同一張單同一序號出現多次）──────────
+// 完全相同的列 → 直接去掉（通常是兩份匯出合併時的重疊區間）
+// 同 id 但內容不同 → 保留最後一筆（較新的匯出），並回報出來讓人核對
+export function dedupeRows(rows) {
+  const map = new Map()
+  let exact = 0, conflict = 0
+  const samples = []
+  const sig = r => JSON.stringify([r.order_date, r.customer_name, r.amount, r.quantity, r.category, r.material, r.sales_rep])
+  for (const r of rows) {
+    const prev = map.get(r.id)
+    if (prev) {
+      if (sig(prev) === sig(r)) exact++
+      else {
+        conflict++
+        if (samples.length < 5) samples.push(`${r.id}（${prev.amount} → ${r.amount}）`)
+      }
+    }
+    map.set(r.id, r)
+  }
+  return { rows: [...map.values()], exact, conflict, samples }
+}
+
 // ── 取得資料中的日期範圍（僅供上傳前預覽/警示用，不再拿來當刪除依據）──
 export function getDateRange(rows) {
   let minDate = null, maxDate = null
@@ -198,6 +220,13 @@ export async function uploadSalesToSupabase(sb, rows, targetRangeStart, targetRa
   // 0. 上傳前先確認身分具備 manager/admin 權限，才有辦法清除舊資料
   await ensureUploaderIsAuthorized(sb)
 
+  // 0b. 刪除「之前」先去重，避免刪完舊資料才在中途撞到重複 id 失敗、留下資料缺口
+  const dd = dedupeRows(rows)
+  rows = dd.rows
+  const dupWarnings = []
+  if (dd.exact) dupWarnings.push(`檔案內有 ${dd.exact} 筆完全重複的資料，已自動去除（通常是兩份匯出期間重疊）`)
+  if (dd.conflict) dupWarnings.push(`檔案內有 ${dd.conflict} 筆同單號同序號但內容不同，已保留最後一筆，請核對：${dd.samples.join('、')}`)
+
   if (!targetRangeStart || !targetRangeEnd) {
     throw new Error('必須明確指定要刪除重建的日期區間（targetRangeStart / targetRangeEnd），不可省略。例如整季上傳要傳 2026-04-01 ~ 2026-06-30，不能讓程式自己從檔案內容去猜。')
   }
@@ -215,6 +244,7 @@ export async function uploadSalesToSupabase(sb, rows, targetRangeStart, targetRa
   if (maxDate && maxDate > targetRangeEnd) {
     warnings.push(`檔案內有晚於指定區間的資料（最晚 ${maxDate}，指定區間到 ${targetRangeEnd} 結束），這些資料不會被正確覆蓋，請確認區間設定`)
   }
+  warnings.unshift(...dupWarnings)
   if (warnings.length && onProgress) {
     warnings.forEach(w => onProgress(0, rows.length, 'warning', w))
   }
