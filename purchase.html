@@ -68,7 +68,9 @@ tr.det td{background:#fbfaf6;text-align:left;white-space:normal;padding:12px 16p
   <div id="msg"></div>
   <div class="cards">
     <div class="card"><h3>① 庫存表（SK041）</h3><p id="inv-info">尚未上傳</p>
-      <label class="btn pri" style="margin-top:8px">上傳庫存表<input type="file" id="f-inv" accept=".xlsx,.xls"></label></div>
+      <label class="btn pri" style="margin-top:8px">上傳庫存表<input type="file" id="f-inv" accept=".xlsx,.xls"></label>
+      <label class="btn" style="margin-top:8px">上傳訂單表 OR02<input type="file" id="f-ord" accept=".xlsx,.xls"></label>
+      <p id="ord-info" style="margin-top:6px"></p></div>
     <div class="card"><h3>② 銷售資料</h3><p id="sales-info">載入中…</p>
       <label class="btn" style="margin-top:8px">改用 SE11 檔案<input type="file" id="f-sales" accept=".xlsx,.xls" multiple></label>
       <button class="btn" id="btn-reload" style="margin-top:8px">重新載入</button></div>
@@ -77,7 +79,8 @@ tr.det td{background:#fbfaf6;text-align:left;white-space:normal;padding:12px 16p
       <label>不缺貨機率 <select id="s-z"><option value="1.04">85%（最省倉）</option><option value="1.28">90%</option><option value="1.65">95%</option><option value="2.05">98%（最保險）</option></select></label>
       <label>看最近 <input type="number" id="s-weeks" min="4" max="78"> 週</label>
       <label>一批最多 <input type="number" id="s-batch" min="1" max="20"> 櫃</label>
-      <label><input type="checkbox" id="s-open"> 扣掉受訂量</label></div></div>
+      <label><input type="checkbox" id="s-open"> 扣掉受訂量</label>
+      <label>訂單只算最近 <input type="number" id="s-odays" min="1" max="365"> 天</label></div></div>
   </div>
 
   <div class="kpis" id="kpis"></div>
@@ -113,7 +116,7 @@ const n1 = v => isFinite(v) ? (Math.round(v * 10) / 10).toLocaleString() : '—'
 const today = () => { const d = new Date(Date.now() + 8 * 3600e3); return d.toISOString().slice(0, 10) }  // 台灣日期
 
 let sb = null, canSave = false
-let state = { settings: {}, master: {}, adj: {}, commitments: [], inventory: null, invDate: null, invFile: null }
+let state = { settings: {}, master: {}, adj: {}, commitments: [], inventory: null, invDate: null, invFile: null, openOrders: null, ordInfo: null }
 let sales = [], salesSrc = '', salesEnd = null, result = null, filter = 'all', openCode = null
 
 // ── 儲存／讀取 ────────────────────────────────────────────
@@ -157,6 +160,20 @@ $('f-inv').onchange = async e => {
   e.target.value = ''
 }
 
+$('f-ord').onchange = async e => {
+  const file = e.target.files[0]; if (!file) return
+  try {
+    const wb = await readWb(file)
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: null, raw: false })
+    if (!rows.length || !('訂購日' in rows[0]) || !('受訂量' in rows[0])) throw new Error('這不是 OR02 訂單表（找不到「訂購日」「受訂量」欄位）')
+    const S = { ...core.DEFAULTS, ...state.settings }
+    const r = core.parseOrders(rows, today(), S.orderDays)
+    state.openOrders = r.open
+    state.ordInfo = { file: file.name, date: today(), used: r.used, old: r.old, from: r.from, days: S.orderDays }
+    save(); recalc()
+  } catch (err) { flash('⚠ ' + err.message) }
+  e.target.value = ''
+}
 $('f-sales').onchange = async e => {
   const files = [...e.target.files]; if (!files.length) return
   try {
@@ -215,6 +232,11 @@ function render() {
   const S = { ...core.DEFAULTS, ...state.settings }
   $('s-lead').value = S.leadDays; $('s-z').value = String(S.z); $('s-weeks').value = S.weeks; $('s-batch').value = S.batchSize; $('s-open').checked = S.deductOpen
   $('inv-info').innerHTML = state.inventory ? `${esc(state.invFile || '')}<br>${state.invDate} 上傳，${Object.keys(state.inventory).length} 個品項（${S.warehouses.join('＋')}）` : '尚未上傳。請從 ERP 匯出 SK041 後上傳。'
+  $('s-odays').value = S.orderDays
+  const oi = state.ordInfo
+  $('ord-info').innerHTML = state.openOrders && oi
+    ? `受訂量改用訂單表：${esc(oi.file)}（${oi.date} 上傳）<br>只算 ${oi.from} 之後的 ${oi.used} 筆，略過 ${oi.old} 筆舊單 <a href="#" id="ord-clear">改回用庫存表</a>`
+    : '受訂量目前用庫存表的數字（含很久以前沒刪的舊單）。上傳訂單表可只算最近的訂單。'
   renderCommit()
   if (!result) { $('kpis').innerHTML = ''; $('tb').innerHTML = '<tr><td colspan="13" style="text-align:center;padding:40px" class="muted">請先上傳庫存表</td></tr>'; $('mk').innerHTML = ''; $('cnt').textContent = ''; $('howto').innerHTML = ''; return }
 
@@ -242,7 +264,7 @@ function render() {
     <b>可用</b> = 庫存 ${S.deductOpen ? '− 受訂 ' : ''}+ 在途。<b>訂貨點</b> = 日均 × ${S.leadDays} 天 + 安全庫存（起伏越大留越多）。
     可用量低於訂貨點就要下單；可撐天數少於 ${S.leadDays} 天代表現在下單也會斷一段。
     整櫃可賣超過 ${S.mixMonths} 個月的品項建議併櫃，只補到「訂貨點 + ${S.cycleDays} 天」的量。
-    庫存欄可以直接改成實際盤點數（黃底代表改過），打勾「已盤」表示這個數字確認過。`
+    受訂量${state.openOrders ? '來自訂單表（只算最近 ' + S.orderDays + ' 天）' : '來自庫存表'}。庫存欄可以直接改成實際盤點數（黃底代表改過），打勾「已盤」表示這個數字確認過。`
 }
 
 function rowHtml(r) {
@@ -323,6 +345,8 @@ $('s-lead').onchange = e => setS({ leadDays: Math.max(7, +e.target.value || 45) 
 $('s-z').onchange = e => setS({ z: +e.target.value })
 $('s-batch').onchange = e => setS({ batchSize: Math.max(1, +e.target.value || 4) })
 $('s-open').onchange = e => setS({ deductOpen: e.target.checked })
+$('s-odays').onchange = e => { setS({ orderDays: Math.max(1, +e.target.value || 30) }); if (state.openOrders) flash('天數已改。請重新上傳訂單表，受訂量才會照新的天數重算。') }
+$('ord-info').addEventListener('click', e => { if (e.target.id === 'ord-clear') { e.preventDefault(); state.openOrders = null; state.ordInfo = null; save(); recalc() } })
 $('s-weeks').onchange = e => { setS({ weeks: Math.max(4, +e.target.value || 26) }); if (salesSrc === '拜訪通') loadSalesFromSupabase() }
 $('btn-reload').onclick = () => loadSalesFromSupabase()
 $('c-add').onclick = () => {
