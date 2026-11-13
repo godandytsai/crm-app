@@ -1117,6 +1117,12 @@ window.renderManagerOverview = async function() {
 
   html += `<div id="tab-data" style="display:none">
 
+    <a href="purchase.html" class="card" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;text-decoration:none;color:inherit">
+      <i class="ti ti-truck-delivery" style="font-size:22px;color:var(--blue)"></i>
+      <div style="flex:1"><div class="card-name">採購系統</div><div class="card-sub">上傳庫存表，算安全庫存與建議訂貨（建議用電腦開）</div></div>
+      <i class="ti ti-chevron-right" style="color:#aaa"></i>
+    </a>
+
     <div class="sec-label">銷售資料</div>
     <div class="card" style="margin-bottom:12px">
       <div class="card-top">
