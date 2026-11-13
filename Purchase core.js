@@ -11,6 +11,7 @@ export const DEFAULTS = {
   cycleDays: 30,         // 併櫃品項一次補多少天的量
   mixMonths: 6,          // 一整櫃可賣超過幾個月 → 建議併櫃
   deductOpen: true,      // 是否扣受訂量
+  orderDays: 30,         // 訂單表只算最近幾天內的訂單
   batchSize: 4,          // 一批最多幾櫃（避免爆倉）
   cbmOwn: 65,            // 自有品牌一櫃 CBM
   cbmJp: 70,             // 日貨一櫃 CBM
@@ -46,6 +47,27 @@ export function parseInventory(rows, settings = DEFAULTS) {
     it.transit += num(r['採購量(主單位)'])   // 在途：所有倉別的採購未進量
   }
   return inv
+}
+
+// ── 解析 ERP 訂單表 OR02：只算「最近 days 天內下的、還沒結清」的未出貨量（主單位）──
+// 太舊的訂單多半是沒刪掉的無效單，不算進受訂量
+export function parseOrders(rows, today, days = 30) {
+  const from = addDays(today, -days)
+  const open = {}
+  let used = 0, old = 0, closed = 0
+  for (const r of rows) {
+    const code = String(r['產品代號'] || '').trim()
+    const p = String(r['訂購日'] || '').split('/')
+    if (!code || p.length !== 3) continue
+    const y = parseInt(p[0]); const yy = y < 1911 ? y + 1911 : y
+    const date = `${yy}-${p[1].padStart(2, '0')}-${p[2].padStart(2, '0')}`
+    const qty = num(r['受訂量']) - num(r['受訂沖銷量']) - num(r['受訂取消量'])
+    if (qty <= 0 || String(r['結清註記'] || '').trim()) { closed++; continue }
+    if (date < from) { old++; continue }
+    open[code] = (open[code] || 0) + qty
+    used++
+  }
+  return { open, used, old, closed, from }
 }
 
 // ── 把 SE11（或 Supabase sales_order）轉成精簡銷售列 ─────────
@@ -109,7 +131,7 @@ export function compute(state, sales, today, salesEnd) {
     const pack = src.pack || 1
     const v = {
       onhand: a.onhand != null ? a.onhand : src.onhand / pack,
-      open: a.open != null ? a.open : src.open / pack,
+      open: a.open != null ? a.open : (state.openOrders ? (state.openOrders[code] || 0) : src.open) / pack,
       transit: a.transit != null ? a.transit : src.transit / pack
     }
     const tgt = alias[code] || code
