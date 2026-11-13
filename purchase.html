@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>採購系統｜拜訪通</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--blue:#185FA5;--blue-l:#E6F1FB;--green:#3B6D11;--green-l:#EAF3DE;--amber:#854F0B;--amber-l:#FAEEDA;--red:#A32D2D;--red-l:#FCEBEB;--gray:#5F5E5A;--gray-l:#F1EFE8;--text:#1a1a18;--sec:#5F5E5A;--hint:#888780;--bg:#fff;--bg2:#F8F7F2;--bd:rgba(0,0,0,.12)}
+body{font-family:-apple-system,'PingFang TC','Microsoft JhengHei',sans-serif;background:var(--bg2);color:var(--text);font-size:14px}
+button,input,select{font-family:inherit;font-size:inherit}
+.top{background:var(--bg);border-bottom:1px solid var(--bd);height:52px;display:flex;align-items:center;gap:14px;padding:0 20px;position:sticky;top:0;z-index:50}
+.top h1{font-size:16px;font-weight:600}.top a{font-size:13px;color:var(--sec);text-decoration:none}
+.top .sp{flex:1}.save{font-size:12px;color:var(--hint)}
+.wrap{max-width:1400px;margin:0 auto;padding:16px 20px 60px}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px}
+.card{min-width:0;background:var(--bg);border:1px solid var(--bd);border-radius:10px;padding:14px}
+.card h3{font-size:13px;font-weight:600;margin-bottom:6px}.card p{font-size:12px;color:var(--sec);line-height:1.6}
+.btn{display:inline-block;position:relative;overflow:hidden;border:1px solid var(--bd);background:var(--bg);border-radius:8px;padding:7px 12px;cursor:pointer;font-size:13px}
+.btn.pri{background:var(--blue);border-color:var(--blue);color:#fff}.btn input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
+.btn:disabled{opacity:.5;cursor:default}
+.set{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;font-size:12px;color:var(--sec)}
+.set input[type=number]{width:58px}.set input,.set select,td input[type=number],.frm input,.frm select{border:1px solid var(--bd);border-radius:6px;padding:4px 6px;background:#fff}
+.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:14px}
+.kpi{background:var(--bg);border:1px solid var(--bd);border-radius:10px;padding:12px 14px;cursor:pointer}
+.kpi.on{border-color:var(--blue);box-shadow:0 0 0 2px var(--blue-l)}
+.kpi .l{font-size:12px;color:var(--sec)}.kpi .v{font-size:24px;font-weight:600;margin-top:2px}.kpi .s{font-size:11px;color:var(--hint)}
+.bar{display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+.bar input[type=search]{border:1px solid var(--bd);border-radius:8px;padding:7px 10px;width:220px}
+.tw{background:var(--bg);border:1px solid var(--bd);border-radius:10px;overflow-x:auto}
+table{width:100%;border-collapse:collapse;min-width:1180px}
+th{background:var(--bg2);font-size:11px;color:var(--sec);font-weight:600;text-align:right;padding:8px 10px;border-bottom:1px solid var(--bd);white-space:nowrap}
+th:nth-child(-n+2),td:nth-child(-n+2){text-align:left}
+td{padding:7px 10px;border-bottom:1px solid var(--gray-l);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+tr.row{cursor:pointer}tr.row:hover{background:#fbfaf6}
+td.nm{white-space:normal;min-width:230px}td.nm small{display:block;color:var(--hint);font-size:11px}
+td input[type=number]{width:70px;text-align:right}td input.chg{background:var(--amber-l);border-color:#d9b36c}
+.bdg{display:inline-block;font-size:11px;font-weight:600;border-radius:5px;padding:2px 7px}
+.b-now{background:var(--red-l);color:var(--red)}.b-soon{background:var(--amber-l);color:var(--amber)}.b-ok{background:var(--green-l);color:var(--green)}
+.b-disc{background:var(--gray-l);color:var(--gray)}.b-risk{background:var(--red);color:#fff;margin-left:4px}
+.neg{color:var(--red);font-weight:600}.muted{color:var(--hint)}
+tr.det td{background:#fbfaf6;text-align:left;white-space:normal;padding:12px 16px}
+.dg{display:grid;grid-template-columns:1.2fr 1fr;gap:20px}.dg h4{font-size:12px;color:var(--sec);margin-bottom:6px}
+.spark{display:flex;align-items:flex-end;gap:2px;height:60px}.spark i{flex:1;background:#9bbbdc;min-height:1px;border-radius:2px 2px 0 0}
+.frm{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;font-size:12px}.frm input[type=number]{width:80px}.frm input[type=text]{width:110px}
+.exp{font-size:12px;line-height:1.8;color:var(--sec)}.exp b{color:var(--text)}
+.sec{margin-top:18px}.sec h2{font-size:14px;font-weight:600;margin-bottom:8px}
+.note{font-size:12px;color:var(--sec);background:var(--bg);border:1px dashed var(--bd);border-radius:10px;padding:12px 14px;line-height:1.7}
+.warn{background:var(--amber-l);border:1px solid #e3c48a;color:var(--amber);border-radius:10px;padding:10px 14px;font-size:13px;margin-bottom:12px}
+#login{position:fixed;inset:0;background:var(--bg2);z-index:100;display:none;align-items:center;justify-content:center}
+#login .box{background:#fff;border:1px solid var(--bd);border-radius:14px;padding:26px;width:320px;display:flex;flex-direction:column;gap:10px}
+#login input{border:1px solid var(--bd);border-radius:8px;padding:9px 10px}
+@media(max-width:900px){.cards,.kpis{grid-template-columns:1fr 1fr}.dg{grid-template-columns:1fr}.wrap{padding:12px}}
+</style>
+</head>
+<body>
+<div id="login"><div class="box">
+  <h2 style="font-size:18px">採購系統</h2><p class="muted" style="font-size:12px">請用管理者帳號登入</p>
+  <input id="lg-email" type="email" placeholder="Email" autocomplete="email">
+  <input id="lg-pw" type="password" placeholder="密碼" autocomplete="current-password">
+  <button class="btn pri" id="lg-btn">登入</button><div id="lg-err" class="neg" style="font-size:12px"></div>
+</div></div>
+
+<div class="top"><a href="./">← 拜訪通</a><h1>採購系統</h1><span class="sp"></span><span class="save" id="save-st"></span>
+  <button class="btn" id="btn-export">匯出 Excel</button></div>
+
+<div class="wrap">
+  <div id="msg"></div>
+  <div class="cards">
+    <div class="card"><h3>① 庫存表（SK041）</h3><p id="inv-info">尚未上傳</p>
+      <label class="btn pri" style="margin-top:8px">上傳庫存表<input type="file" id="f-inv" accept=".xlsx,.xls"></label></div>
+    <div class="card"><h3>② 銷售資料</h3><p id="sales-info">載入中…</p>
+      <label class="btn" style="margin-top:8px">改用 SE11 檔案<input type="file" id="f-sales" accept=".xlsx,.xls" multiple></label>
+      <button class="btn" id="btn-reload" style="margin-top:8px">重新載入</button></div>
+    <div class="card"><h3>③ 計算設定</h3><div class="set">
+      <label>交期 <input type="number" id="s-lead" min="7" max="180"> 天</label>
+      <label>不缺貨機率 <select id="s-z"><option value="1.04">85%（最省倉）</option><option value="1.28">90%</option><option value="1.65">95%</option><option value="2.05">98%（最保險）</option></select></label>
+      <label>看最近 <input type="number" id="s-weeks" min="4" max="78"> 週</label>
+      <label>一批最多 <input type="number" id="s-batch" min="1" max="20"> 櫃</label>
+      <label><input type="checkbox" id="s-open"> 扣掉受訂量</label></div></div>
+  </div>
+
+  <div class="kpis" id="kpis"></div>
+  <div class="bar"><input type="search" id="q" placeholder="搜尋品號或品名"><span class="muted" id="cnt"></span></div>
+  <div class="tw"><table><thead><tr>
+    <th>狀態</th><th>品項</th><th>週均(箱)</th><th>庫存(箱)</th><th>已盤</th><th>受訂</th><th>在途</th><th>可用</th><th>可撐天數</th><th>現貨見底日</th><th>訂貨點</th><th>建議下單</th><th>批次</th>
+  </tr></thead><tbody id="tb"></tbody></table></div>
+
+  <div class="sec"><h2>各工廠本次建議量</h2><div class="tw"><table style="min-width:600px"><thead><tr><th>工廠</th><th></th><th>箱數</th><th>CBM</th><th>整櫃</th><th>併櫃</th><th>合計櫃數</th></tr></thead><tbody id="mk"></tbody></table></div></div>
+
+  <div class="sec"><h2>標案／專案需求</h2>
+    <div class="card"><div class="frm">
+      <input type="text" id="c-name" placeholder="名稱（如 高雄榮總）"><input type="text" id="c-code" placeholder="品號" list="codes"><datalist id="codes"></datalist>
+      <label>總量 <input type="number" id="c-qty" min="0"> 箱</label><label>已出 <input type="number" id="c-done" min="0" value="0"> 箱</label>
+      <label>起 <input type="date" id="c-start"></label><label>迄 <input type="date" id="c-end"></label>
+      <button class="btn pri" id="c-add">新增</button></div>
+      <div id="c-list" style="margin-top:10px;overflow-x:auto"></div></div></div>
+
+  <div class="sec note" id="howto"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script type="module">
+import * as core from './purchase-core.js'
+import SEED from './purchase-seed.js'
+
+const SB_URL = 'https://trxmfvosyfnlidmyelzs.supabase.co'
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRyeG1mdm9zeWZubGlkbXllbHpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgyMTU5NDUsImV4cCI6MjA5Mzc5MTk0NX0.auFOS6ZtcmhsXMWBctFtRr-KnKmGDh4E5jhnk79Vbx0'
+const $ = id => document.getElementById(id)
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+const n0 = v => isFinite(v) ? Math.round(v).toLocaleString() : '—'
+const n1 = v => isFinite(v) ? (Math.round(v * 10) / 10).toLocaleString() : '—'
+const today = () => { const d = new Date(Date.now() + 8 * 3600e3); return d.toISOString().slice(0, 10) }  // 台灣日期
+
+let sb = null, canSave = false
+let state = { settings: {}, master: {}, adj: {}, commitments: [], inventory: null, invDate: null, invFile: null }
+let sales = [], salesSrc = '', salesEnd = null, result = null, filter = 'all', openCode = null
+
+// ── 儲存／讀取 ────────────────────────────────────────────
+let saveT = null
+function save() {
+  try { localStorage.setItem('purchase_state', JSON.stringify(state)) } catch (e) {}
+  if (!canSave) { $('save-st').textContent = '已存在這台電腦'; return }
+  $('save-st').textContent = '儲存中…'
+  clearTimeout(saveT)
+  saveT = setTimeout(async () => {
+    const { error } = await sb.from('purchase_state').upsert({ id: 'main', data: state, updated_at: new Date().toISOString() })
+    $('save-st').textContent = error ? '⚠ 雲端儲存失敗（已存在這台電腦）：' + error.message : '已儲存 ' + new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })
+  }, 800)
+}
+function applyLoaded(d) { if (d && typeof d === 'object') state = { ...state, ...d } }
+const masterOf = () => { const m = {}; for (const c in SEED) m[c] = { ...SEED[c] }; for (const c in state.master) m[c] = { ...(m[c] || {}), ...state.master[c] }; return m }
+function setMaster(code, patch) { state.master[code] = { ...(state.master[code] || {}), ...patch }; save(); recalc() }
+function setAdj(code, patch) {
+  const a = { ...(state.adj[code] || {}), ...patch }
+  for (const k of ['onhand', 'open', 'transit']) if (a[k] == null || a[k] === '') delete a[k]
+  if (!a.confirmed) delete a.confirmed
+  if (Object.keys(a).length) state.adj[code] = a; else delete state.adj[code]
+  save(); recalc()
+}
+
+// ── 讀 Excel ─────────────────────────────────────────────
+const readWb = file => new Promise((res, rej) => { const fr = new FileReader(); fr.onload = e => { try { res(XLSX.read(e.target.result, { type: 'array' })) } catch (err) { rej(err) } }; fr.onerror = rej; fr.readAsArrayBuffer(file) })
+
+$('f-inv').onchange = async e => {
+  const file = e.target.files[0]; if (!file) return
+  try {
+    const wb = await readWb(file)
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: null })
+    if (!rows.length || !('產品代號' in rows[0]) || !('目前庫存量(主單位)' in rows[0])) throw new Error('這不是 SK041 庫存表（找不到「產品代號」「目前庫存量(主單位)」欄位）')
+    const inv = core.parseInventory(rows, { ...core.DEFAULTS, ...state.settings })
+    const hadAdj = Object.keys(state.adj).length
+    if (hadAdj && !confirm(`上一份庫存表有 ${hadAdj} 個品項做過手動調整。\n\n新的庫存表會重新開始，舊的調整會清掉。確定嗎？`)) { e.target.value = ''; return }
+    state.inventory = inv; state.adj = {}; state.invDate = today(); state.invFile = file.name
+    save(); recalc()
+  } catch (err) { flash('⚠ ' + err.message) }
+  e.target.value = ''
+}
+
+$('f-sales').onchange = async e => {
+  const files = [...e.target.files]; if (!files.length) return
+  try {
+    let all = []
+    for (const f of files) {
+      const wb = await readWb(f)
+      const sn = wb.SheetNames.find(n => n.includes('銷售')) || wb.SheetNames[0]
+      all = all.concat(core.salesFromSE11(XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval: null, raw: false })))
+    }
+    if (!all.length) throw new Error('檔案裡沒有可用的銷售資料（需要「單別」「日期」「產品代號」「主單位數量」欄位）')
+    sales = all; salesSrc = '檔案：' + files.map(f => f.name).join('、'); afterSales()
+  } catch (err) { flash('⚠ ' + err.message) }
+  e.target.value = ''
+}
+
+// ── 從 Supabase 讀銷售（需要 sales_order 已有 product_code）───
+async function loadSalesFromSupabase() {
+  if (!sb) { $('sales-info').textContent = '離線模式：請上傳 SE11 檔案'; return }
+  $('sales-info').textContent = '從拜訪通載入中…'
+  const S = { ...core.DEFAULTS, ...state.settings }
+  const from = core.addDays(today(), -(S.weeks + 2) * 7)
+  let all = [], off = 0
+  while (true) {
+    const { data, error } = await sb.from('sales_order').select('product_code,order_date,main_qty')
+      .in('order_type', S.saleTypes).in('series', S.series).not('product_code', 'is', null)
+      .gte('order_date', from).lte('order_date', today()).order('id').range(off, off + 999)
+    if (error) { $('sales-info').innerHTML = '<span class="neg">讀取失敗：' + esc(error.message) + '</span><br>如果訊息提到 product_code，代表資料庫還沒加欄位，請先執行設定 SQL。'; return }
+    all = all.concat(data.map(r => ({ code: r.product_code, date: r.order_date, qty: +r.main_qty || 0 })))
+    if (data.length < 1000) break
+    off += 1000
+    $('sales-info').textContent = `從拜訪通載入中… ${all.length} 筆`
+  }
+  sales = all; salesSrc = '拜訪通'; afterSales()
+}
+function afterSales() {
+  salesEnd = sales.reduce((m, s) => s.date > m ? s.date : m, '') || null
+  const min = sales.reduce((m, s) => !m || s.date < m ? s.date : m, '')
+  $('sales-info').innerHTML = sales.length
+    ? `來源：${esc(salesSrc)}<br>${sales.length.toLocaleString()} 筆，${min} ～ ${salesEnd}`
+    : '<span class="neg">拜訪通裡還沒有帶品號的銷售資料。</span><br>請到管理者後台重新上傳 SE11，或先在這裡用 SE11 檔案。'
+  recalc()
+}
+
+// ── 計算與畫面 ───────────────────────────────────────────
+function recalc() {
+  result = state.inventory ? core.compute({ ...state, master: masterOf() }, sales, today(), salesEnd) : null
+  render()
+}
+const ST = { now: ['立即下單', 'b-now'], soon: ['即將下單', 'b-soon'], ok: ['充足', 'b-ok'], idle: ['無動靜', 'b-disc'], 'disc-short': ['停產・不足', 'b-now'], 'disc-low': ['停產・快賣完', 'b-soon'], 'disc-ok': ['停產', 'b-disc'] }
+const FILTERS = {
+  all: r => true, now: r => r.status === 'now', soon: r => r.status === 'soon', risk: r => r.risk,
+  disc: r => r.status === 'disc-short' || r.status === 'disc-low'
+}
+
+function render() {
+  const S = { ...core.DEFAULTS, ...state.settings }
+  $('s-lead').value = S.leadDays; $('s-z').value = String(S.z); $('s-weeks').value = S.weeks; $('s-batch').value = S.batchSize; $('s-open').checked = S.deductOpen
+  $('inv-info').innerHTML = state.inventory ? `${esc(state.invFile || '')}<br>${state.invDate} 上傳，${Object.keys(state.inventory).length} 個品項（${S.warehouses.join('＋')}）` : '尚未上傳。請從 ERP 匯出 SK041 後上傳。'
+  renderCommit()
+  if (!result) { $('kpis').innerHTML = ''; $('tb').innerHTML = '<tr><td colspan="13" style="text-align:center;padding:40px" class="muted">請先上傳庫存表</td></tr>'; $('mk').innerHTML = ''; $('cnt').textContent = ''; $('howto').innerHTML = ''; return }
+
+  const it = result.items
+  const cnt = k => it.filter(FILTERS[k]).length
+  const totalCont = result.byMaker.reduce((s, g) => s + g.containers, 0)
+  const unconfirmed = it.filter(r => r.orderCartons > 0 && !r.confirmed).length
+  const tiles = [
+    ['now', '立即下單', cnt('now'), '可用量已低於訂貨點'],
+    ['risk', '到貨前會斷', cnt('risk'), `現在下單也撐不到 ${S.leadDays} 天`],
+    ['soon', '即將下單', cnt('soon'), `${S.soonDays} 天內會碰到訂貨點`],
+    ['disc', '停產預警', cnt('disc'), '停產品不足或快賣完'],
+    ['all', '本次建議', n1(totalCont) + ' 櫃', unconfirmed ? `其中 ${unconfirmed} 項庫存還沒盤` : '全部品項']
+  ]
+  $('kpis').innerHTML = tiles.map(([k, l, v, s]) => `<div class="kpi${filter === k ? ' on' : ''}" data-f="${k}"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join('')
+
+  const q = $('q').value.trim().toLowerCase()
+  const rows = it.filter(FILTERS[filter]).filter(r => !q || r.code.toLowerCase().includes(q) || r.name.toLowerCase().includes(q))
+  $('cnt').textContent = `顯示 ${rows.length} / ${it.length} 項`
+  $('tb').innerHTML = rows.map(r => rowHtml(r) + (openCode === r.code ? detailHtml(r, S) : '')).join('') || '<tr><td colspan="13" style="text-align:center;padding:30px" class="muted">沒有符合的品項</td></tr>'
+
+  $('mk').innerHTML = result.byMaker.filter(g => g.cartons > 0).map(g => `<tr><td>${esc(g.maker)}</td><td></td><td>${n0(g.cartons)}</td><td>${n1(g.cbm)}</td><td>${n0(g.full)}</td><td>${n1(g.mixContainers)}</td><td><b>${n1(g.containers)}</b></td></tr>`).join('') || '<tr><td colspan="7" class="muted" style="text-align:center;padding:16px">目前沒有需要下單的品項</td></tr>'
+  $('codes').innerHTML = it.map(r => `<option value="${esc(r.code)}">${esc(r.name)}</option>`).join('')
+  $('howto').innerHTML = `<b>怎麼算的：</b>用最近 ${result.weeks} 週（${result.salesStart || '—'} 起）每週的出貨量算平均和起伏。
+    <b>可用</b> = 庫存 ${S.deductOpen ? '− 受訂 ' : ''}+ 在途。<b>訂貨點</b> = 日均 × ${S.leadDays} 天 + 安全庫存（起伏越大留越多）。
+    可用量低於訂貨點就要下單；可撐天數少於 ${S.leadDays} 天代表現在下單也會斷一段。
+    整櫃可賣超過 ${S.mixMonths} 個月的品項建議併櫃，只補到「訂貨點 + ${S.cycleDays} 天」的量。
+    庫存欄可以直接改成實際盤點數（黃底代表改過），打勾「已盤」表示這個數字確認過。`
+}
+
+function rowHtml(r) {
+  const [lab, cls] = ST[r.status]
+  const a = state.adj[r.code] || {}
+  const inp = (k, v) => `<input type="number" step="1" data-adj="${k}" data-code="${esc(r.code)}" value="${Math.round(v * 10) / 10}" class="${a[k] != null ? 'chg' : ''}" title="${a[k] != null ? (k === 'onhand' ? 'ERP 原始值：' + n1(r.erpOnhand) + '。' : '') + '清空可還原' : '可直接改成實際數量'}">`
+  const single = !r.merged.length
+  const order = r.orderCartons > 0 ? (r.mix ? `${n0(r.orderCartons)} 箱<small class="muted" style="display:block">併櫃 ${n1(r.orderCbm)} CBM</small>` : `<b>${n0(r.orderContainers)} 櫃</b><small class="muted" style="display:block">${n0(r.orderCartons)} 箱</small>`) : '<span class="muted">—</span>'
+  return `<tr class="row" data-code="${esc(r.code)}">
+    <td><span class="bdg ${cls}">${lab}</span>${r.risk ? '<span class="bdg b-risk">會斷</span>' : ''}</td>
+    <td class="nm">${esc(r.name)}<small>${esc(r.code)}${r.maker ? '・' + esc(r.maker) : ''}${r.merged.length ? '・含 ' + esc(r.merged.join('、')) : ''}${r.note ? '・<span class="neg">' + esc(r.note) + '</span>' : ''}</small></td>
+    <td>${n1(r.weeklyAvg)}${r.tenderDaily ? `<small class="muted" style="display:block">+標案 ${n1(r.tenderDaily * 7)}</small>` : ''}</td>
+    <td>${single ? inp('onhand', r.onhand) : n1(r.onhand)}</td>
+    <td>${single ? `<input type="checkbox" data-conf="${esc(r.code)}" ${a.confirmed ? 'checked' : ''}>` : ''}</td>
+    <td>${n1(r.open)}</td>
+    <td>${single ? inp('transit', r.transit) : n1(r.transit)}</td>
+    <td class="${r.position < 0 ? 'neg' : ''}">${n1(r.position)}</td>
+    <td class="${r.risk ? 'neg' : ''}">${isFinite(r.coverDays) ? n0(Math.max(r.coverDays, 0)) : '—'}</td>
+    <td>${r.stockoutDate && r.daily > 0 ? r.stockoutDate.slice(5) : '—'}</td>
+    <td>${r.discontinued ? '—' : n0(r.rop)}</td>
+    <td>${order}</td>
+    <td>${r.batch ? (r.batch === 1 ? '第一批' : '<span class="muted">第二批</span>') : ''}</td></tr>`
+}
+
+function detailHtml(r, S) {
+  const max = Math.max(1, ...r.weekly)
+  const m = masterOf()[r.code] || {}
+  const tip = r.discontinued
+    ? `停產品不建議補貨。目前可用 <b>${n1(r.position)}</b> 箱${r.tenderRemain ? `，標案還要出 <b>${n0(r.tenderRemain)}</b> 箱（到 ${r.tenderEnd}），加上一般銷售共需 <b>${n0(Math.ceil(r.need))}</b> 箱，${r.gap > 0 ? `<span class="neg">還缺 ${n0(Math.ceil(r.gap))} 箱</span>` : '足夠'}` : ''}。`
+    : `日均 <b>${n1(r.daily)}</b> 箱 × ${S.leadDays} 天 = ${n0(r.daily * S.leadDays)}，加安全庫存 <b>${n0(r.safety)}</b> 箱 → 訂貨點 <b>${n0(r.rop)}</b> 箱。<br>
+       可用 = 庫存 ${n1(r.onhand)} ${S.deductOpen ? '− 受訂 ' + n1(r.open) : ''} + 在途 ${n1(r.transit)} = <b>${n1(r.position)}</b> 箱。<br>
+       ${r.contCartons ? `一櫃（${r.contCbm} CBM）約 <b>${n0(r.contCartons)}</b> 箱${r.contMonths ? '，可賣 ' + n1(r.contMonths) + ' 個月' : ''}。` : '<span class="neg">還沒有每箱材積，無法換算櫃數，請在右邊填 CBM。</span>'}
+       ${r.orderCartons ? `<br>下單後預估可撐 <b>${n1(r.afterMonths)}</b> 個月。` : ''}`
+  return `<tr class="det"><td colspan="13"><div class="dg">
+    <div><h4>最近 ${r.weeksUsed} 週每週出貨（箱）・平均 ${n1(r.weeklyAvg)}・最高 ${n0(max)}</h4>
+      <div class="spark">${r.weekly.map(v => `<i style="height:${Math.max(0, v) / max * 100}%" title="${n0(v)} 箱"></i>`).join('')}</div>
+      <div class="exp" style="margin-top:10px">${tip}</div></div>
+    <div><h4>品項設定</h4><div class="frm" data-code="${esc(r.code)}">
+      <label>每箱 CBM <input type="number" step="0.001" data-m="cbm" value="${m.cbm || ''}"></label>
+      <label>工廠 <input type="text" data-m="maker" value="${esc(m.maker || '')}"></label>
+      <label>一櫃 CBM <input type="number" step="1" data-m="containerCbm" value="${m.containerCbm || ''}" placeholder="${r.contCbm}"></label>
+      <label><input type="checkbox" data-m="discontinued" ${m.discontinued ? 'checked' : ''}> 停產（不再建議補貨）</label>
+      <label>併入品號 <input type="text" data-m="mergeInto" value="${esc(m.mergeInto || '')}" placeholder="改版新品號" list="codes"></label>
+    </div><p class="muted" style="font-size:11px;margin-top:8px">「併入品號」用在改版換品號：舊品號的銷量和庫存會算到新品號上。</p></div>
+  </div></td></tr>`
+}
+
+function renderCommit() {
+  const list = state.commitments || []
+  $('c-list').innerHTML = list.length ? '<table style="min-width:0"><thead><tr><th>名稱</th><th>品號</th><th>總量(箱)</th><th>已出(箱)</th><th>剩餘</th><th>期間</th><th></th></tr></thead><tbody>' +
+    list.map((c, i) => `<tr><td>${esc(c.name)}</td><td style="text-align:left">${esc(c.code)}</td><td>${n0(c.cartons)}</td><td><input type="number" data-cdone="${i}" value="${c.delivered || 0}"></td><td>${n0(Math.max(0, c.cartons - (c.delivered || 0)))}</td><td>${c.start} ～ ${c.end}</td><td><button class="btn" data-cdel="${i}">刪除</button></td></tr>`).join('') + '</tbody></table>'
+    : '<p class="muted" style="font-size:12px">還沒有標案需求。新增後，該品項的每日需求會加上「剩餘量 ÷ 剩餘天數」；停產品會直接顯示庫存夠不夠出到合約結束。</p>'
+}
+
+function flash(t) { $('msg').innerHTML = t ? `<div class="warn">${esc(t)}</div>` : ''; if (t) setTimeout(() => flash(''), 9000) }
+
+// ── 事件 ─────────────────────────────────────────────────
+$('kpis').onclick = e => { const k = e.target.closest('.kpi'); if (k) { filter = k.dataset.f; render() } }
+$('q').oninput = () => render()
+$('tb').addEventListener('click', e => {
+  if (e.target.closest('input,button,select,label,.det')) return
+  const tr = e.target.closest('tr.row'); if (!tr) return
+  openCode = openCode === tr.dataset.code ? null : tr.dataset.code; render()
+})
+$('tb').addEventListener('change', e => {
+  const t = e.target
+  if (t.dataset.adj) setAdj(t.dataset.code, { [t.dataset.adj]: t.value === '' ? null : +t.value, ...(t.dataset.adj === 'onhand' && t.value !== '' ? { confirmed: true } : {}) })
+  else if (t.dataset.conf) setAdj(t.dataset.conf, { confirmed: t.checked })
+  else if (t.dataset.m) {
+    const code = t.closest('.frm').dataset.code, k = t.dataset.m
+    let v = t.type === 'checkbox' ? t.checked : t.type === 'number' ? (t.value === '' ? null : +t.value) : t.value.trim()
+    if (k === 'mergeInto' && v === code) v = ''
+    setMaster(code, { [k]: v })
+  }
+})
+const setS = patch => { state.settings = { ...state.settings, ...patch }; save(); recalc() }
+$('s-lead').onchange = e => setS({ leadDays: Math.max(7, +e.target.value || 45) })
+$('s-z').onchange = e => setS({ z: +e.target.value })
+$('s-batch').onchange = e => setS({ batchSize: Math.max(1, +e.target.value || 4) })
+$('s-open').onchange = e => setS({ deductOpen: e.target.checked })
+$('s-weeks').onchange = e => { setS({ weeks: Math.max(4, +e.target.value || 26) }); if (salesSrc === '拜訪通') loadSalesFromSupabase() }
+$('btn-reload').onclick = () => loadSalesFromSupabase()
+$('c-add').onclick = () => {
+  const c = { id: Date.now(), name: $('c-name').value.trim(), code: $('c-code').value.trim(), cartons: +$('c-qty').value || 0, delivered: +$('c-done').value || 0, start: $('c-start').value, end: $('c-end').value }
+  if (!c.name || !c.code || !c.cartons || !c.start || !c.end) return flash('請填完整：名稱、品號、總量、起訖日期')
+  if (c.end < c.start) return flash('結束日期不能早於開始日期')
+  if (state.inventory && !state.inventory[c.code]) return flash(`庫存表裡找不到品號 ${c.code}`)
+  state.commitments = [...(state.commitments || []), c]; save(); recalc()
+  for (const id of ['c-code', 'c-qty']) $(id).value = ''
+}
+$('c-list').addEventListener('click', e => { const i = e.target.dataset.cdel; if (i != null && confirm('刪除這筆標案需求？')) { state.commitments.splice(+i, 1); save(); recalc() } })
+$('c-list').addEventListener('change', e => { const i = e.target.dataset.cdone; if (i != null) { state.commitments[+i].delivered = +e.target.value || 0; save(); recalc() } })
+
+$('btn-export').onclick = () => {
+  if (!result) return flash('請先上傳庫存表')
+  const S = result.settings
+  const head = ['狀態', '到貨前會斷', '品號', '品名', '工廠', '週均(箱)', '庫存(箱)', 'ERP庫存(箱)', '已盤', '受訂(箱)', '在途(箱)', '可用(箱)', '可撐天數', '現貨見底日', '安全庫存', '訂貨點', '建議箱數', '建議櫃數', '併櫃', 'CBM', '批次', '備註']
+  const body = result.items.map(r => [ST[r.status][0], r.risk ? '是' : '', r.code, r.name, r.maker, +r.weeklyAvg.toFixed(1), +r.onhand.toFixed(1), +r.erpOnhand.toFixed(1), r.confirmed ? '是' : '', +r.open.toFixed(1), +r.transit.toFixed(1), +r.position.toFixed(1), isFinite(r.coverDays) ? Math.round(r.coverDays) : '', r.daily > 0 ? r.stockoutDate : '', Math.round(r.safety), Math.round(r.rop), r.orderCartons || '', r.orderCartons ? +r.orderContainers.toFixed(2) : '', r.mix && r.orderCartons ? '是' : '', r.orderCbm ? +r.orderCbm.toFixed(1) : '', r.batch || '', r.note])
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([[`採購建議 ${today()}｜交期 ${S.leadDays} 天｜銷售 ${result.salesStart || ''}～${salesEnd || ''}｜庫存表 ${state.invFile || ''}`], [], head, ...body]), '採購建議')
+  XLSX.writeFile(wb, `採購建議_${today()}.xlsx`)
+}
+
+// ── 啟動 ─────────────────────────────────────────────────
+async function start() {
+  try { applyLoaded(JSON.parse(localStorage.getItem('purchase_state') || 'null')) } catch (e) {}
+  try {
+    const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2')
+    sb = createClient(SB_URL, SB_KEY)
+  } catch (e) { sb = null }
+  if (!sb) { flash('連不上拜訪通資料庫，目前是離線模式：可以上傳檔案試算，資料只存在這台電腦。'); recalc(); loadSalesFromSupabase(); return }
+  const { data: { session } } = await sb.auth.getSession()
+  if (!session) { $('login').style.display = 'flex'; return }
+  await afterLogin(session.user)
+}
+async function afterLogin(user) {
+  const { data: rep } = await sb.from('sales_rep').select('role').eq('auth_user_id', user.id).maybeSingle()
+  if (!rep || !['manager', 'admin'].includes(rep.role)) { $('login').style.display = 'flex'; $('lg-err').textContent = '這個帳號沒有管理者權限'; await sb.auth.signOut(); return }
+  $('login').style.display = 'none'
+  const { data, error } = await sb.from('purchase_state').select('data').eq('id', 'main').maybeSingle()
+  if (error) flash('雲端儲存還沒設定好（' + error.message + '）。目前資料只會存在這台電腦，請先執行設定 SQL。')
+  else { canSave = true; if (data?.data) applyLoaded(data.data) }
+  recalc(); loadSalesFromSupabase()
+}
+$('lg-btn').onclick = async () => {
+  $('lg-err').textContent = ''
+  const { data, error } = await sb.auth.signInWithPassword({ email: $('lg-email').value.trim(), password: $('lg-pw').value })
+  if (error) { $('lg-err').textContent = '登入失敗：' + error.message; return }
+  await afterLogin(data.user)
+}
+$('lg-pw').onkeydown = e => { if (e.key === 'Enter') $('lg-btn').click() }
+start()
+</script>
+</body>
+</html>
