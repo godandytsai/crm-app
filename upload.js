@@ -97,7 +97,12 @@ export function parseSalesWS(ws, XLSX) {
       raw_material: rawMa,
       material_group: getMaGroup(rawCa, rawMa),
       amount: parseFloat(String(r['未稅金額']||'0').replace(/,/g,''))||0,
-      quantity: parseFloat(String(r['數量']||'0').replace(/,/g,''))||0
+      quantity: parseFloat(String(r['數量']||'0').replace(/,/g,''))||0,
+      // ★ 採購系統用：品號、品名、主單位數量（包）、供應商
+      product_code: String(r['產品代號']||'').trim() || null,
+      product_name: String(r['品名']||'').trim() || null,
+      main_qty: parseFloat(String(r['主單位數量'] ?? r['數量'] ?? '0').replace(/,/g,''))||0,
+      supplier: String(r['供應商簡稱']||'').trim() || null
     })
   }
   return rows
