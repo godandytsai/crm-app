@@ -112,42 +112,66 @@ function stats(arr) {
   return { mean, sd }
 }
 
+// ── 分類：包寧安／小丸子／日貨尿布 ─────────────────────────
+export const GROUPS = ['包寧安', '小丸子', '日貨尿布']
+export const groupOf = series => series === '非經銷嬰褲' ? '日貨尿布' : series === '自有品牌成褲' ? '包寧安' : '小丸子'
+
 // ── 主計算 ───────────────────────────────────────────────────
-// state: { settings, inventory, master:{code:{cbm,maker,discontinued,mergeInto,containerCbm}},
-//          adj:{code:{onhand?,transit?,open?,confirmed?}}  ← 手動調整，單位：箱
-//          commitments:[{id,name,code,cartons,delivered,start,end}] }
+// state: { settings, inventory,
+//   master:{code:{cbm,maker,containerCbm,discontinued,hidden,mergeInto}},
+//   adj:{code:{onhand?,erpAt?,confirmed?,carried?,date?}}   盤點數（箱）
+//   ordered:{code:箱}                                      已向工廠下單、ERP 還沒建採購單的量
+//   openOrders:{code:包} | null                            來自訂單表 OR02 的受訂量
+//   commitments:[{id,name,code,cartons,delivered,start,end}] }
 export function compute(state, sales, today, salesEnd) {
   const S = { ...DEFAULTS, ...(state.settings || {}) }
-  const master = state.master || {}, adj = state.adj || {}
+  const master = state.master || {}, adj = state.adj || {}, ordered = state.ordered || {}
+  const invSrc = state.inventory || {}
+
+  // 接替關係：舊品號 → 新品號（最多追兩層，避免互相指來指去）
   const alias = {}
-  for (const c in master) if (master[c].mergeInto) alias[c] = master[c].mergeInto
+  for (const c in master) {
+    let t = master[c].mergeInto
+    if (!t || t === c) continue
+    if (master[t] && master[t].mergeInto && master[t].mergeInto !== c) t = master[t].mergeInto
+    if (t !== c) alias[c] = t
+  }
   const wd = weeklyDemand(sales, salesEnd || today, S.weeks, alias)
 
-  // 合併品號：庫存、受訂、在途加到主品號
-  const inv = {}
-  for (const code in state.inventory || {}) {
-    const src = state.inventory[code]
-    const a = adj[code] || {}
-    const pack = src.pack || 1
-    const v = {
-      onhand: a.onhand != null ? a.onhand : src.onhand / pack,
-      open: a.open != null ? a.open : (state.openOrders ? (state.openOrders[code] || 0) : src.open) / pack,
-      transit: a.transit != null ? a.transit : src.transit / pack
-    }
+  // 把舊品號的庫存、受訂、在途、已下單換算成「新品號的箱」後加到新品號
+  const inv = {}, absorbed = [], hidden = []
+  const codes = new Set([...Object.keys(invSrc), ...Object.values(alias)])
+  for (const code of codes) {
+    const src = invSrc[code]
     const tgt = alias[code] || code
-    if (!inv[tgt]) inv[tgt] = { ...(state.inventory[tgt] || src), code: tgt, onhand: 0, open: 0, transit: 0, merged: [], erpOnhand: 0, adjusted: false, confirmed: true }
+    const base = invSrc[tgt] || src
+    if (!base) continue
+    const tgtPack = base.pack || 1
+    if (!inv[tgt]) inv[tgt] = {
+      code: tgt, name: invSrc[tgt] ? invSrc[tgt].name : `${tgt}（庫存表還沒有這個品號）`, series: base.series, category: base.category,
+      pack: tgtPack, onhand: 0, open: 0, transit: 0, ordered: 0, erpOnhand: 0, merged: [], adjusted: false, carried: false, confirmed: true, countDate: null
+    }
+    if (!src) continue
     const t = inv[tgt]
-    t.onhand += v.onhand; t.open += v.open; t.transit += v.transit
-    t.erpOnhand += src.onhand / pack
-    if (a.onhand != null || a.transit != null || a.open != null) t.adjusted = true
+    const a = adj[code] || {}
+    const f = (src.pack || 1) / tgtPack                    // 舊箱 → 新箱
+    const erp = src.onhand / (src.pack || 1)
+    const on = a.onhand != null ? a.onhand : erp
+    t.onhand += on * f
+    t.erpOnhand += erp * f
+    t.open += (state.openOrders ? (state.openOrders[code] || 0) : src.open) / tgtPack
+    t.transit += src.transit / tgtPack
+    t.ordered += (ordered[code] || 0) * f
+    if (a.onhand != null) { t.adjusted = true; if (a.carried) t.carried = true; t.countDate = a.date || t.countDate }
     if (!a.confirmed) t.confirmed = false
-    if (tgt !== code) t.merged.push(code)
+    if (tgt !== code) { t.merged.push(code); absorbed.push({ code, name: src.name, target: tgt, onhand: on }) }
   }
 
   const items = []
   for (const code in inv) {
     const it = inv[code]
     const m = master[code] || {}
+    if (m.hidden) { hidden.push({ code, name: it.name }); continue }
     const pack = it.pack || 1
     let w = (wd.byCode[code] || new Array(wd.weeks).fill(0)).map(v => v / pack)   // 箱/週
     // 新品：從第一筆銷售那週開始算，避免被前面的 0 稀釋
@@ -172,11 +196,10 @@ export function compute(state, sales, today, salesEnd) {
 
     const daily = baseDaily + tenderDaily
     const open = S.deductOpen ? it.open : 0
-    const avail = it.onhand - open                 // 現貨可用（箱）
-    const position = avail + it.transit            // 加在途
-    const sdLead = (st.sd / Math.sqrt(7)) * Math.sqrt(S.leadDays)
-    const safety = S.z * sdLead
-    const rop = daily * S.leadDays + safety        // 訂貨點
+    const avail = it.onhand - open                          // 現貨可用（箱）
+    const position = avail + it.transit + it.ordered        // 加上會進來的：在途 + 已下單
+    const safety = S.z * (st.sd / Math.sqrt(7)) * Math.sqrt(S.leadDays)
+    const rop = daily * S.leadDays + safety                 // 訂貨點
     const coverDays = daily > 0 ? position / daily : Infinity
     const stockDays = daily > 0 ? avail / daily : Infinity
     const cbm = m.cbm || 0
@@ -185,11 +208,11 @@ export function compute(state, sales, today, salesEnd) {
     const contMonths = contCartons && daily > 0 ? contCartons / (daily * 30) : null
 
     const r = {
-      code, name: it.name, series: it.series, category: it.category, pack, maker: m.maker || '',
+      code, name: it.name, series: it.series, category: it.category, group: groupOf(it.series), pack, maker: m.maker || '',
       weekly: w, weeklyAvg: st.mean, weeklySd: st.sd, daily, baseDaily, tenderDaily, isNew, weeksUsed: w.length,
-      onhand: it.onhand, erpOnhand: it.erpOnhand, open: it.open, transit: it.transit, avail, position,
-      adjusted: it.adjusted, confirmed: it.confirmed, merged: it.merged,
-      safety, rop, coverDays, stockDays,
+      onhand: it.onhand, erpOnhand: it.erpOnhand, open: it.open, transit: it.transit, ordered: it.ordered, avail, position,
+      adjusted: it.adjusted, carried: it.carried, confirmed: it.confirmed, countDate: it.countDate, merged: it.merged,
+      safety, rop, coverDays, stockDays, ropDays: daily > 0 ? rop / daily : null,
       stockoutDate: isFinite(stockDays) ? addDays(today, Math.max(0, Math.floor(stockDays))) : null,
       cbm, contCbm, contCartons, contMonths,
       discontinued: !!m.discontinued, tenderRemain, tenderEnd,
@@ -204,6 +227,7 @@ export function compute(state, sales, today, salesEnd) {
       r.gap = Math.max(0, need - position)
       if (avail < 0) { r.status = 'disc-short'; r.note = `受訂量已超過庫存 ${Math.ceil(-avail)} 箱` }
       else if (tenderRemain > 0 && r.gap > 0) { r.status = 'disc-short'; r.note = `標案到 ${tenderEnd} 還缺 ${Math.ceil(r.gap)} 箱` }
+      else if (position <= 0) { r.status = 'disc-ok'; r.note = '已賣完' }
       else if (isFinite(coverDays) && coverDays < 60) { r.status = 'disc-low'; r.note = `約 ${Math.round(coverDays)} 天後賣完` }
       else { r.status = 'disc-ok'; r.note = isFinite(coverDays) ? `還可賣 ${(coverDays / 30).toFixed(1)} 個月` : '近期無銷售' }
     } else if (daily <= 0 && position <= 0) {
@@ -227,13 +251,13 @@ export function compute(state, sales, today, salesEnd) {
           r.mix = true
           r.orderCartons = Math.ceil(deficit)
           r.orderContainers = contCartons ? r.orderCartons / contCartons : 0
-          if (!contCartons) r.note = (r.note ? r.note + '；' : '') + '缺材積資料，無法換算櫃數'
+          if (!contCartons) r.note = (r.note ? r.note + '；' : '') + '缺材積，無法換算櫃數'
         }
         r.orderCbm = r.orderCartons * cbm
         r.afterMonths = (position + r.orderCartons) / (daily * 30)
       }
     }
-    if (isNew) r.note = (r.note ? r.note + '；' : '') + `新品，僅 ${w.length} 週資料`
+    if (isNew) r.note = (r.note ? r.note + '；' : '') + `只有 ${w.length} 週銷售資料`
     items.push(r)
   }
 
@@ -257,5 +281,5 @@ export function compute(state, sales, today, salesEnd) {
 
   const order = { now: 0, soon: 1, 'disc-short': 2, 'disc-low': 3, ok: 4, 'disc-ok': 5, idle: 6 }
   items.sort((a, b) => (order[a.status] - order[b.status]) || (a.coverDays - b.coverDays))
-  return { items, orders, byMaker: Object.values(byMaker), weeks: wd.weeks, salesStart: wd.start, settings: S }
+  return { items, orders, byMaker: Object.values(byMaker), absorbed, hidden, weeks: wd.weeks, salesStart: wd.start, settings: S }
 }
